@@ -1,0 +1,29 @@
+{
+  "name": "@teach-everything/api",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/app.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.8",
+    "@teach-everything/shared": "workspace:*",
+    "hono": "^4.12.29"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}
