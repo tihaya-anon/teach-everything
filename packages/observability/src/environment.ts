@@ -26,23 +26,35 @@ const parseFormat = (value: string | undefined, variableName: string): LogFormat
 };
 
 const parseSinks = (environment: NodeJS.ProcessEnv): LogSinkConfig[] => {
-  const sinkNames = (environment.LOG_SINKS ?? "stdout")
+  const isDevelopment = environment.NODE_ENV?.toLowerCase() === "development";
+  const configuredDefaultFormat =
+    environment.LOG_FORMAT === undefined
+      ? undefined
+      : parseFormat(environment.LOG_FORMAT, "LOG_FORMAT");
+  const sinkNames = (environment.LOG_SINKS ?? (isDevelopment ? "stdout,file" : "stdout"))
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  const defaultFormat = parseFormat(environment.LOG_FORMAT, "LOG_FORMAT");
   const sinks = sinkNames.map((sinkName): LogSinkConfig => {
     if (sinkName === "stdout") {
       return {
         type: "stdout",
-        format: parseFormat(environment.LOG_STDOUT_FORMAT ?? defaultFormat, "LOG_STDOUT_FORMAT"),
+        format: parseFormat(
+          environment.LOG_STDOUT_FORMAT ??
+            configuredDefaultFormat ??
+            (isDevelopment ? "plaintext" : "json"),
+          "LOG_STDOUT_FORMAT",
+        ),
       };
     }
     if (sinkName === "file") {
       return {
         type: "file",
         path: environment.LOG_FILE_PATH ?? "logs/application.log",
-        format: parseFormat(environment.LOG_FILE_FORMAT ?? defaultFormat, "LOG_FILE_FORMAT"),
+        format: parseFormat(
+          environment.LOG_FILE_FORMAT ?? configuredDefaultFormat ?? "json",
+          "LOG_FILE_FORMAT",
+        ),
       };
     }
     throw new Error("LOG_SINKS may contain only stdout and file");

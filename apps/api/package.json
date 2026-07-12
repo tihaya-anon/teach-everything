@@ -9,7 +9,7 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch --import ./src/instrumentation.ts src/index.ts",
+    "dev": "NODE_ENV=development tsx watch --import ./src/instrumentation.ts src/index.ts",
     "build": "tsup",
     "start": "node --import ./dist/instrumentation.js dist/index.js",
     "typecheck": "tsc --noEmit",

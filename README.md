@@ -38,7 +38,9 @@ OpenTelemetry is disabled in `.env.example`. Set `OTEL_SDK_DISABLED=false` and c
 Application logs use the OpenTelemetry log data model field names and automatically include the
 active `traceId`, `spanId`, and `traceFlags`. Configure logging with `LOG_LEVEL`, `LOG_SINKS`, and
 `LOG_FORMAT`. Supported sinks are `stdout` and `file`; supported formats are `json` and
-`plaintext`. Use `LOG_STDOUT_FORMAT` or `LOG_FILE_FORMAT` to override the format for one sink.
+`plaintext`. In development, logging defaults to plaintext on stdout and JSON in
+`logs/application.log`. Use `LOG_STDOUT_FORMAT`, `LOG_FILE_FORMAT`, or `LOG_FILE_PATH` to override
+the development defaults.
 
 TypeScript is pinned to 6.0.x because the current stable `typescript-eslint` release supports
 TypeScript versions below 6.1. Upgrade TypeScript and `typescript-eslint` together.
