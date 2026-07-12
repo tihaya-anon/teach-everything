@@ -1,3 +1,28 @@
 [sandbox_policy]
 mode = "workspace-write"
 network_access = "enabled"
+
+[mcp_servers.playwright]
+command = "npx"
+args = [
+    "-y",
+    "@playwright/mcp@latest",
+    "--browser",
+    "chromium",
+    "--user-data-dir",
+    ".cache/playwright-mcp/profile",
+    "--output-dir",
+    ".cache/playwright-mcp/output"
+]
+
+[mcp_servers.playwright.tools.browser_resize]
+approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_type]
+approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_click]
+approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_close]
+approval_mode = "approve"
