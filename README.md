@@ -7,6 +7,7 @@ Pure TypeScript full-stack workspace with React, Hono, LangGraph, OpenTelemetry,
 - `apps/web`: Vite and React frontend
 - `apps/api`: Hono API with OpenTelemetry instrumentation
 - `packages/agent`: LangGraph agent runtime
+- `packages/observability`: Structured logging, tracing helpers, and Node.js telemetry lifecycle
 - `packages/shared`: Shared Zod schemas and TypeScript types
 - `packages/database`: Drizzle schema and PostgreSQL client
 
@@ -33,6 +34,11 @@ pnpm build
 
 OpenTelemetry is disabled in `.env.example`. Set `OTEL_SDK_DISABLED=false` and configure
 `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces and metrics to an OTLP collector.
+
+Application logs use the OpenTelemetry log data model field names and automatically include the
+active `traceId`, `spanId`, and `traceFlags`. Configure logging with `LOG_LEVEL`, `LOG_SINKS`, and
+`LOG_FORMAT`. Supported sinks are `stdout` and `file`; supported formats are `json` and
+`plaintext`. Use `LOG_STDOUT_FORMAT` or `LOG_FILE_FORMAT` to override the format for one sink.
 
 TypeScript is pinned to 6.0.x because the current stable `typescript-eslint` release supports
 TypeScript versions below 6.1. Upgrade TypeScript and `typescript-eslint` together.

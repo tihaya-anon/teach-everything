@@ -1,4 +1,5 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { createTracer } from "@teach-everything/observability";
 
 export type AgentInput = {
   prompt: string;
@@ -21,6 +22,10 @@ const AgentState = Annotation.Root({
   result: Annotation<AgentResult>,
 });
 
+const tracer = createTracer({
+  instrumentationName: "@teach-everything/agent",
+});
+
 export const createAgentRuntime = (model: AgentModel): AgentRuntime => {
   const graph = new StateGraph(AgentState)
     .addNode("generate", async (state) => ({
@@ -38,8 +43,12 @@ export const createAgentRuntime = (model: AgentModel): AgentRuntime => {
         throw new RangeError("Agent prompt must not be empty");
       }
 
-      const state = await graph.invoke({
-        input: { prompt },
+      const state = await tracer.run("agent.invoke", async (span) => {
+        span.setAttribute("agent.input.prompt_length", prompt.length);
+
+        return graph.invoke({
+          input: { prompt },
+        });
       });
 
       return state.result;

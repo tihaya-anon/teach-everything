@@ -11,6 +11,7 @@ This repository is a pnpm workspace containing two applications and three shared
 - `apps/web`: Vite + React frontend. UI code lives in `src/`; `vite.config.ts` proxies `/api` requests to the backend.
 - `apps/api`: Hono API for Node.js. Define routes in `src/app.ts` and keep the server entry point in `src/index.ts`.
 - `packages/agent`: LangGraph agent runtime. Keep LangGraph state and graph implementation behind the package's exported runtime interface.
+- `packages/observability`: Structured logs, trace helpers, and Node.js OpenTelemetry lifecycle. Keep sink and formatter details behind the exported logger interface.
 - `packages/shared`: Zod schemas and TypeScript types shared by both applications. Export public modules through `src/index.ts`.
 - `packages/database`: Drizzle PostgreSQL schema, client factory, and migration configuration.
 

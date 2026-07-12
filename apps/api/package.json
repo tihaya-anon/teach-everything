@@ -23,6 +23,7 @@
     "@opentelemetry/exporter-trace-otlp-proto": "^0.220.0",
     "@opentelemetry/sdk-metrics": "^2.9.0",
     "@opentelemetry/sdk-node": "^0.220.0",
+    "@teach-everything/observability": "workspace:*",
     "@teach-everything/shared": "workspace:*",
     "hono": "^4.12.29"
   },
