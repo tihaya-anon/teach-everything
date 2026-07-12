@@ -3,9 +3,7 @@ import type { HealthResponse } from "@teach-everything/shared";
 import { api } from "./api";
 
 type ApiState =
-  | { status: "loading" }
-  | { status: "ready"; data: HealthResponse }
-  | { status: "error" };
+  { status: "loading" } | { status: "ready"; data: HealthResponse } | { status: "error" };
 
 export function App() {
   const [apiState, setApiState] = useState<ApiState>({ status: "loading" });
@@ -40,7 +38,9 @@ export function App() {
   return (
     <main className="shell">
       <header className="topbar">
-        <a className="brand" href="/">Teach Everything</a>
+        <a className="brand" href="/">
+          Teach Everything
+        </a>
         <span className={`status status--${apiState.status}`}>
           <span className="status__dot" aria-hidden="true" />
           {statusLabel}
@@ -51,7 +51,8 @@ export function App() {
         <p className="eyebrow">FULL-STACK TYPESCRIPT WORKSPACE</p>
         <h1>Start with a clear structure.</h1>
         <p className="intro">
-          React, Hono, shared schemas, and the database layer are connected. This page also verifies end-to-end RPC type inference.
+          React, Hono, shared schemas, and the database layer are connected. This page also verifies
+          end-to-end RPC type inference.
         </p>
 
         <div className="module-grid">

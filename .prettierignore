@@ -1,0 +1,6 @@
+**/dist
+**/node_modules
+.pnpm-store
+packages/database/drizzle
+instruction.md
+pnpm-lock.yaml

@@ -9,14 +9,20 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm",
-    "start": "node dist/index.js",
+    "dev": "tsx watch --import ./src/instrumentation.ts src/index.ts",
+    "build": "tsup",
+    "start": "node --import ./dist/instrumentation.js dist/index.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.78.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "^0.220.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.220.0",
+    "@opentelemetry/sdk-metrics": "^2.9.0",
+    "@opentelemetry/sdk-node": "^0.220.0",
     "@teach-everything/shared": "workspace:*",
     "hono": "^4.12.29"
   },
@@ -24,6 +30,6 @@
     "@types/node": "^26.1.1",
     "tsup": "^8.5.1",
     "tsx": "^4.23.0",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.3"
   }
 }
