@@ -4,9 +4,11 @@ import betterTailwindcss from "eslint-plugin-better-tailwindcss";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
+import path from "node:path";
 import tseslint from "typescript-eslint";
+import { defineConfig } from "eslint-define-config";
 
-export default tseslint.config(
+export default defineConfig(
   {
     ignores: ["**/dist/**", "**/node_modules/**", ".pnpm-store/**", "packages/database/drizzle/**"],
   },
@@ -67,7 +69,7 @@ export default tseslint.config(
     },
     settings: {
       "better-tailwindcss": {
-        cwd: "./apps/web",
+        cwd: path.join(import.meta.dirname, "apps/web"),
         entryPoint: "./src/styles.css",
       },
     },
