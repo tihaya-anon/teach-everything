@@ -25,6 +25,8 @@ pnpm dev
 
 ```bash
 pnpm dev
+pnpm test
+pnpm test:watch
 pnpm check
 pnpm lint
 pnpm format

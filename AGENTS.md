@@ -17,7 +17,7 @@ This repository is a pnpm workspace containing two applications and three shared
 - `packages/shared`: Zod schemas and TypeScript types shared by both applications. Export public modules through `src/index.ts`.
 - `packages/database`: Drizzle PostgreSQL schema, client factory, and migration configuration.
 
-Generated `dist/`, `node_modules/`, and `.pnpm-store/` directories must not be committed. No test or static asset directories exist yet; colocate tests with source files when adding them.
+Generated `dist/`, `node_modules/`, and `.pnpm-store/` directories must not be committed. No static asset directories exist yet; colocate tests with source files when adding them.
 
 ## Build, Test, and Development Commands
 
@@ -26,11 +26,13 @@ Use Node.js 22 or newer and pnpm 11.
 ```bash
 pnpm install       # Install all workspace dependencies
 pnpm dev           # Run the web and API development servers in parallel
+pnpm test          # Run all Vitest projects once
+pnpm test:watch    # Run Vitest in watch mode
 pnpm lint          # Lint the workspace with ESLint
 pnpm format:check  # Check formatting with Prettier
 pnpm typecheck     # Type-check every workspace package
 pnpm build         # Build the API and production web assets
-pnpm check         # Run formatting, linting, type checks, and builds
+pnpm check         # Run formatting, linting, type checks, tests, and builds
 pnpm clean         # Remove generated workspace outputs
 ```
 
@@ -48,7 +50,9 @@ ESLint and Prettier are configured at the workspace root and enforced by agent h
 
 ## Testing Guidelines
 
-There is currently no test runner or coverage requirement. New features should introduce focused tests once a runner is added, using `*.test.ts` or `*.test.tsx` beside the implementation. Until then, verify builds, type checks, API responses, and affected UI flows manually.
+Vitest runs each application and package as a separate project. Web tests use jsdom and React Testing Library; API and package tests use the Node.js environment. Colocate `*.test.ts` or `*.test.tsx` files with the implementation and test behavior through public interfaces.
+
+Structure tests with explicit `// Given`, `// When`, and `// Then` sections. Mock only external system boundaries such as third-party APIs, time, randomness, or a database when a real test database is impractical. Run `pnpm test` for the full suite or `pnpm test --project <package-name>` for one workspace project.
 
 ## Commit & Pull Request Guidelines
 
