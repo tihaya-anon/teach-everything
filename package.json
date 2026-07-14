@@ -3,10 +3,13 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
+    "github:issue:create": "node --import tsx scripts/github/create-issue.ts",
+    "github:label:ensure": "node --import tsx scripts/github/ensure-label.ts",
     "build": "pnpm -r build",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:github-scripts",
+    "test:github-scripts": "node --import tsx --test scripts/github/*.test.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/github/tsconfig.json && pnpm -r typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
@@ -20,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-better-tailwindcss": "^4.6.1",
@@ -27,6 +31,7 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "prettier": "^3.9.5",
+    "tsx": "^4.23.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.63.0",
     "vitest": "^4.1.10"
