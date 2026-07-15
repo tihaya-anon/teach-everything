@@ -63,7 +63,7 @@ const resolveRepositoryFile = (repositoryRoot, editCwd, candidate) => {
     relativeRealPath.startsWith(`..${sep}`) ||
     isAbsolute(relativeRealPath)
   ) {
-    throw new Error(`Edited path is outside the repository: ${candidate}`);
+    return { outsideRepositoryPath: candidate };
   }
 
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
@@ -76,11 +76,23 @@ const resolveRepositoryFile = (repositoryRoot, editCwd, candidate) => {
   };
 };
 
-const writeContext = (relativePaths) => {
+const writeContext = (relativePaths, outsideRepositoryPaths) => {
+  const messages = [];
+
+  if (relativePaths.length > 0) {
+    messages.push(`Prettier processed edited files: ${relativePaths.join(", ")}`);
+  }
+
+  if (outsideRepositoryPaths.length > 0) {
+    messages.push(
+      `Warning: this formatting hook did not check outside-repository file(s): ${outsideRepositoryPaths.join(", ")}`,
+    );
+  }
+
   writeHookOutput({
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
-      additionalContext: `Prettier processed edited files: ${relativePaths.join(", ")}`,
+      additionalContext: messages.join("\n"),
     },
   });
 };
@@ -104,34 +116,50 @@ const main = async () => {
 
   const editCwd = typeof input.cwd === "string" ? input.cwd : process.cwd();
   const repositoryRoot = findRepositoryRoot(editCwd);
+  const resolvedPaths = getEditedPaths(patch).map((candidate) =>
+    resolveRepositoryFile(repositoryRoot, editCwd, candidate),
+  );
+  const outsideRepositoryPaths = resolvedPaths
+    .filter((path) => path !== undefined && "outsideRepositoryPath" in path)
+    .map((path) => path.outsideRepositoryPath);
   const files = [
     ...new Map(
-      getEditedPaths(patch)
-        .map((candidate) => resolveRepositoryFile(repositoryRoot, editCwd, candidate))
-        .filter((file) => file !== undefined)
+      resolvedPaths
+        .filter((path) => path !== undefined && "absolutePath" in path)
         .map((file) => [file.absolutePath, file]),
     ).values(),
   ];
 
-  if (files.length === 0) {
+  if (files.length === 0 && outsideRepositoryPaths.length === 0) {
     return;
   }
 
-  const result = spawnSync(
-    "pnpm",
-    ["exec", "prettier", "--write", "--ignore-unknown", ...files.map((file) => file.absolutePath)],
-    {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    },
-  );
+  if (files.length > 0) {
+    const result = spawnSync(
+      "pnpm",
+      [
+        "exec",
+        "prettier",
+        "--write",
+        "--ignore-unknown",
+        ...files.map((file) => file.absolutePath),
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+      },
+    );
 
-  if (result.error || result.status !== 0) {
-    const detail = result.error?.message ?? result.stderr.trim() ?? "Unknown Prettier error";
-    throw new Error(`Unable to format edited files: ${detail}`);
+    if (result.error || result.status !== 0) {
+      const detail = result.error?.message ?? result.stderr.trim() ?? "Unknown Prettier error";
+      throw new Error(`Unable to format edited files: ${detail}`);
+    }
   }
 
-  writeContext(files.map((file) => file.relativePath));
+  writeContext(
+    files.map((file) => file.relativePath),
+    outsideRepositoryPaths,
+  );
 };
 
 main().catch((error) => {
