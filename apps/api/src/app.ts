@@ -16,6 +16,7 @@ import {
   healthResponseSchema,
   isAgentRunValidationError,
   type AgentRunEvent,
+  type AgentRunExecutorEvent,
 } from "@teach-everything/shared";
 import { Hono } from "hono";
 import { logger as defaultLogger } from "./logger";
@@ -25,6 +26,8 @@ export interface CreateAppOptions {
   createAgentRunId?: () => string;
   logger?: Logger;
 }
+
+const defaultCancellationConfirmationTimeoutMs = 10_000;
 
 const getErrorClassification = (error: unknown) => {
   if (error instanceof AgentRunExecutionError) {
@@ -41,6 +44,15 @@ type TerminalAgentRunEvent = Extract<
   AgentRunEvent,
   { type: "run.completed" | "run.failed" | "run.cancelled" }
 >;
+type ExecutorNextResult =
+  | {
+      result: IteratorResult<AgentRunExecutorEvent>;
+      type: "next";
+    }
+  | {
+      error: unknown;
+      type: "error";
+    };
 
 const isTerminalEvent = (event: AgentRunEvent): event is TerminalAgentRunEvent =>
   event.type === "run.completed" || event.type === "run.failed" || event.type === "run.cancelled";
@@ -59,23 +71,6 @@ const failureEvent = (errorClassification: AgentRunErrorClassification): Termina
   errorClassification,
 });
 
-const createExecutionCancellation = (requestSignal: AbortSignal) => {
-  const controller = new AbortController();
-  const cancel = (reason?: unknown) => {
-    if (!controller.signal.aborted) controller.abort(reason);
-  };
-  const cancelForRequestAbort = () => cancel(requestSignal.reason);
-
-  if (requestSignal.aborted) cancelForRequestAbort();
-  else requestSignal.addEventListener("abort", cancelForRequestAbort, { once: true });
-
-  return {
-    cancel,
-    release: () => requestSignal.removeEventListener("abort", cancelForRequestAbort),
-    signal: controller.signal,
-  };
-};
-
 const createAgentRunStream = (
   executor: AgentRunExecutor,
   agentRunId: string,
@@ -84,74 +79,215 @@ const createAgentRunStream = (
   telemetryScope: AgentRunTelemetryScope,
 ) => {
   const encoder = new TextEncoder();
-  let cancelExecution: ((reason?: unknown) => void) | undefined;
-  let markStreamClosed: (() => void) | undefined;
+  let clientWritable = true;
+  let completion: Promise<void> = Promise.resolve();
+  let requestCancellation: () => void = () => {};
 
   return new ReadableStream<Uint8Array>({
-    async start(controller) {
+    start: (controller) => {
       let terminal = false;
-      let streamOpen = true;
-      const cancellation = createExecutionCancellation(requestSignal);
-      cancelExecution = cancellation.cancel;
-      markStreamClosed = () => {
-        streamOpen = false;
-      };
-      const closeStream = () => {
-        if (!streamOpen) return;
-        streamOpen = false;
-        controller.close();
-      };
+      let cancellationRequested = false;
+      let cancellationDeadline: Promise<"deadline"> | undefined;
+      let cancellationDeadlineTimeout: ReturnType<typeof setTimeout> | undefined;
+      let cleanupConfirmation: Promise<"cleanup" | "cleanup_failed"> | undefined;
+      let iterator: AsyncIterator<AgentRunExecutorEvent> | undefined;
+      let resolveCancellationRequested: () => void = () => {};
+      const cancellationRequestedPromise = new Promise<"cancellation-requested">((resolve) => {
+        resolveCancellationRequested = () => resolve("cancellation-requested");
+      });
+      const executorCancellation = new AbortController();
+
       const send = (event: AgentRunEvent) => {
-        if (!streamOpen) return;
-        controller.enqueue(encoder.encode(encodeAgentRunEventLine(event)));
+        if (!clientWritable) return;
+        try {
+          controller.enqueue(encoder.encode(encodeAgentRunEventLine(event)));
+        } catch {
+          clientWritable = false;
+          requestCancellation();
+        }
+      };
+      const close = () => {
+        if (!clientWritable) return;
+        try {
+          controller.close();
+        } catch {
+          clientWritable = false;
+        }
+      };
+      const clearCancellationDeadline = () => {
+        if (cancellationDeadlineTimeout === undefined) return;
+        clearTimeout(cancellationDeadlineTimeout);
+        cancellationDeadlineTimeout = undefined;
       };
       const terminate = (event: TerminalAgentRunEvent) => {
         if (terminal) return;
         terminal = true;
+        clearCancellationDeadline();
         telemetryScope.finish(terminalTelemetryOutcome(event));
         send(event);
-        closeStream();
+        close();
+      };
+      const getCancellationDeadline = () => cancellationDeadline ?? Promise.resolve("deadline");
+      const releaseIteratorSafely = async (
+        runningIterator: AsyncIterator<AgentRunExecutorEvent>,
+      ) => {
+        try {
+          await runningIterator.return?.();
+        } catch {
+          // Executor cleanup failures must not replace the terminal Agent Run outcome.
+        }
+      };
+      const getCleanupConfirmation = () => {
+        if (cleanupConfirmation !== undefined) return cleanupConfirmation;
+        if (iterator?.return === undefined) return undefined;
+
+        cleanupConfirmation = iterator.return().then(
+          () => "cleanup" as const,
+          () => "cleanup_failed" as const,
+        );
+        return cleanupConfirmation;
+      };
+      const raceCancellationConfirmation = (nextExecutorResult: Promise<ExecutorNextResult>) => {
+        const cleanup = getCleanupConfirmation();
+        return Promise.race(
+          cleanup === undefined
+            ? [nextExecutorResult, getCancellationDeadline()]
+            : [nextExecutorResult, cleanup, getCancellationDeadline()],
+        );
+      };
+      const requestExecutorCancellation = () => {
+        if (terminal || cancellationRequested) return;
+        cancellationRequested = true;
+        telemetryScope.recordCancellationRequested();
+        executorCancellation.abort();
+        cancellationDeadline = new Promise((resolve) => {
+          cancellationDeadlineTimeout = setTimeout(
+            () => resolve("deadline"),
+            defaultCancellationConfirmationTimeoutMs,
+          );
+        });
+        void getCleanupConfirmation();
+        resolveCancellationRequested();
+      };
+      const failCancellation = () => {
+        terminate(failureEvent("cancellation_failed"));
+      };
+      const finishConfirmedCancellation = () => {
+        terminate({ version: 1, type: "run.cancelled" });
+      };
+      const finishCancellationAfterCleanup = async () => {
+        const cleanup = getCleanupConfirmation();
+        if (cleanup === undefined) {
+          finishConfirmedCancellation();
+          return;
+        }
+
+        const cleanupResult = await Promise.race([cleanup, getCancellationDeadline()]);
+        if (cleanupResult === "deadline" || cleanupResult === "cleanup_failed") {
+          failCancellation();
+          return;
+        }
+
+        finishConfirmedCancellation();
       };
 
-      telemetryScope.runInContext(() => {
-        send({ version: 1, type: "run.started", agentRunId });
-      });
+      requestCancellation = requestExecutorCancellation;
+      requestSignal.addEventListener("abort", requestExecutorCancellation, { once: true });
 
-      await telemetryScope.runInContext(async () => {
+      completion = telemetryScope.runInContext(async () => {
         try {
-          for await (const executorEvent of executor.execute(input, cancellation.signal)) {
-            if (cancellation.signal.aborted) return;
+          send({ version: 1, type: "run.started", agentRunId });
+          if (requestSignal.aborted) requestExecutorCancellation();
 
+          iterator = executor.execute(input, executorCancellation.signal)[Symbol.asyncIterator]();
+
+          while (!terminal) {
+            const nextExecutorResult: Promise<ExecutorNextResult> = iterator.next().then(
+              (result) => ({ result, type: "next" as const }),
+              (error: unknown) => ({ error, type: "error" as const }),
+            );
+            let executorResult = cancellationRequested
+              ? await raceCancellationConfirmation(nextExecutorResult)
+              : await Promise.race([nextExecutorResult, cancellationRequestedPromise]);
+
+            if (executorResult === "cancellation-requested") {
+              executorResult = await raceCancellationConfirmation(nextExecutorResult);
+            }
+
+            if (executorResult === "deadline") {
+              failCancellation();
+              return;
+            }
+
+            if (executorResult === "cleanup_failed") {
+              failCancellation();
+              return;
+            }
+
+            if (executorResult === "cleanup") {
+              finishConfirmedCancellation();
+              return;
+            }
+
+            if (cancellationRequested) {
+              if (executorResult.type === "error" || executorResult.result.done === true) {
+                await finishCancellationAfterCleanup();
+                return;
+              }
+
+              const parsedEvent = agentRunExecutorEventSchema.safeParse(
+                executorResult.result.value,
+              );
+              if (parsedEvent.success && isTerminalEvent(parsedEvent.data)) {
+                await finishCancellationAfterCleanup();
+                return;
+              }
+
+              continue;
+            }
+
+            if (executorResult.type === "error") {
+              terminate(failureEvent(getErrorClassification(executorResult.error)));
+              return;
+            }
+
+            if (executorResult.result.done === true) {
+              terminate(failureEvent("internal"));
+              return;
+            }
+
+            const executorEvent = executorResult.result.value;
             const parsedEvent = agentRunExecutorEventSchema.safeParse(executorEvent);
             if (!parsedEvent.success) {
+              if (iterator !== undefined) void releaseIteratorSafely(iterator);
               terminate(failureEvent("internal"));
               return;
             }
 
             if (isTerminalEvent(parsedEvent.data)) {
+              if (iterator !== undefined) void releaseIteratorSafely(iterator);
               terminate(parsedEvent.data);
               return;
             }
 
             send(parsedEvent.data);
           }
-
-          if (cancellation.signal.aborted) return;
-          terminate(failureEvent("internal"));
         } catch (error) {
-          if (cancellation.signal.aborted) return;
+          if (cancellationRequested) {
+            terminate({ version: 1, type: "run.cancelled" });
+            return;
+          }
+
           terminate(failureEvent(getErrorClassification(error)));
         } finally {
-          cancellation.release();
-          cancelExecution = undefined;
-          markStreamClosed = undefined;
-          if (cancellation.signal.aborted) closeStream();
+          requestSignal.removeEventListener("abort", requestExecutorCancellation);
         }
       });
     },
-    cancel() {
-      markStreamClosed?.();
-      cancelExecution?.(requestSignal.reason);
+    cancel: () => {
+      clientWritable = false;
+      requestCancellation();
+      return completion;
     },
   });
 };

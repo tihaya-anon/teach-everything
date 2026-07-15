@@ -34,6 +34,7 @@ export interface AgentRunTelemetry {
 }
 
 export interface AgentRunTelemetryScope {
+  recordCancellationRequested(): void;
   runInContext<T>(operation: () => T): T;
   finish(terminalOutcome: AgentRunTerminalOutcome): void;
 }
@@ -75,6 +76,8 @@ const terminalAttributes = (
 });
 
 class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
+  private cancellationRequested = false;
+
   private finished = false;
 
   public constructor(
@@ -88,6 +91,22 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
 
   public runInContext<T>(operation: () => T): T {
     return context.with(this.runContext, operation);
+  }
+
+  public recordCancellationRequested() {
+    if (this.finished || this.cancellationRequested) return;
+    this.cancellationRequested = true;
+
+    this.runInContext(() => {
+      runDiagnosticTelemetrySafely(() => {
+        this.logger.child({ "agent.run.id": this.agentRunId }).info(
+          "Agent Run cancellation requested",
+          {
+            eventName: "agent.run.cancellation_requested",
+          },
+        );
+      });
+    });
   }
 
   public finish(terminalOutcome: AgentRunTerminalOutcome) {
