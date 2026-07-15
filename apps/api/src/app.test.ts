@@ -146,6 +146,7 @@ describe("POST /api/agent-runs", () => {
   );
 
   it.each([
+    ["an unexpected thrown error", () => new Error("executor-secret")],
     [
       "a spoofed validation error",
       () => Object.assign(new Error("executor-secret"), { name: "ZodError" }),
@@ -286,6 +287,42 @@ describe("POST /api/agent-runs", () => {
       { version: 1, type: "run.started", agentRunId: "ar_terminal_01" },
       { version: 1, type: "run.completed" },
     ]);
+  });
+
+  it("keeps the terminal decision when executor cleanup fails after termination", async () => {
+    // Given
+    const api = createApp({
+      agentRunExecutor: {
+        execute: () => ({
+          [Symbol.asyncIterator]: () => ({
+            next: () =>
+              Promise.resolve<IteratorResult<AgentRunExecutorEvent>>({
+                done: false,
+                value: { version: 1, type: "run.completed" },
+              }),
+            return: () => Promise.reject<IteratorResult<AgentRunExecutorEvent>>("executor-secret"),
+          }),
+        }),
+      },
+      createAgentRunId: () => "ar_terminal_cleanup_01",
+    });
+    const request = new Request("http://localhost/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Run this executor." }),
+    });
+
+    // When
+    const response = await api.request(request);
+    const body = await response.text();
+    const events = decodeAgentRunEvents(body);
+
+    // Then
+    expect(events).toEqual([
+      { version: 1, type: "run.started", agentRunId: "ar_terminal_cleanup_01" },
+      { version: 1, type: "run.completed" },
+    ]);
+    expect(body).not.toContain("executor-secret");
   });
 
   it("does not expose the Agent Run route when no executor is configured", async () => {

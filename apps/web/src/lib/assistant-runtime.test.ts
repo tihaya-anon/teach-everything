@@ -121,6 +121,10 @@ describe("createAgentRunModel", () => {
       '{"version":2,"type":"run.started","agentRunId":"ar_test_02"}\n',
     ],
     ["an unknown event type", '{"version":1,"type":"tool.started","toolName":"search"}\n'],
+    [
+      "a stream that does not start with run.started",
+      '{"version":1,"type":"message.delta","text":"started late"}\n{"version":1,"type":"run.completed"}\n',
+    ],
     ["premature EOF", '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n'],
     [
       "a duplicate terminal event",
@@ -159,14 +163,16 @@ describe("createAgentRunModel", () => {
       throw new Error("Expected the Agent Run adapter to stream updates");
     }
     const updates: ChatModelRunResult[] = [];
+    let caughtError: unknown;
 
     // When
     try {
       for await (const update of result) {
         updates.push(update);
       }
-    } catch {
+    } catch (error) {
       // The existing conversation runtime treats failed runs as an adapter error.
+      caughtError = error;
     }
 
     // Then
@@ -176,5 +182,6 @@ describe("createAgentRunModel", () => {
         metadata: { custom: { agentRunId: "ar_test_02" } },
       },
     ]);
+    expect(caughtError).toEqual(new Error("Agent Run did not complete successfully"));
   });
 });
