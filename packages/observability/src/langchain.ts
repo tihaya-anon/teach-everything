@@ -37,6 +37,7 @@ const commonRunAttributes = (
 ): Attributes => ({
   "langchain.run.kind": kind,
   "langchain.run.name": name ?? "anonymous",
+  ...(kind === "tool" && name !== undefined ? { "gen_ai.tool.name": name } : {}),
   ...(typeof metadata?.ls_provider === "string"
     ? { "gen_ai.provider.name": metadata.ls_provider }
     : {}),
@@ -48,20 +49,26 @@ const commonRunAttributes = (
 const runAttributes = (
   kind: RunKind,
   name: string | undefined,
-  runId: string,
-  parentRunId: string | undefined,
-  tags: string[] | undefined,
   metadata: Record<string, unknown> | undefined,
 ): Attributes => ({
   ...commonRunAttributes(kind, name, metadata),
-  "langchain.run.id": runId,
-  ...(parentRunId === undefined ? {} : { "langchain.run.parent_id": parentRunId }),
-  ...(tags === undefined || tags.length === 0 ? {} : { "langchain.run.tags": tags }),
   ...(typeof metadata?.langgraph_node === "string"
     ? { "langgraph.node.name": metadata.langgraph_node }
     : {}),
   ...(typeof metadata?.langgraph_step === "number"
     ? { "langgraph.step": metadata.langgraph_step }
+    : {}),
+});
+
+const tokenMetricAttributes = (attributes: Attributes): Attributes => ({
+  ...(typeof attributes["gen_ai.provider.name"] === "string"
+    ? { "gen_ai.provider.name": attributes["gen_ai.provider.name"] }
+    : {}),
+  ...(typeof attributes["gen_ai.request.model"] === "string"
+    ? { "gen_ai.request.model": attributes["gen_ai.request.model"] }
+    : {}),
+  ...(typeof attributes["gen_ai.response.model"] === "string"
+    ? { "gen_ai.response.model": attributes["gen_ai.response.model"] }
     : {}),
 });
 
@@ -85,6 +92,23 @@ const firstNumber = (record: Record<string, unknown>, keys: string[]) => {
     const value = record[key];
     if (typeof value === "number") return value;
   }
+
+  return undefined;
+};
+
+const lastString = (values: unknown[]) => {
+  for (const value of values.slice().reverse()) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+
+  return undefined;
+};
+
+const readToolName = (tool: unknown): string | undefined => {
+  if (!isRecord(tool)) return undefined;
+
+  if (typeof tool.name === "string" && tool.name.length > 0) return tool.name;
+  if (Array.isArray(tool.id)) return lastString(tool.id);
 
   return undefined;
 };
@@ -216,6 +240,26 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
+  private safelyReadLlmResultTelemetry(output: unknown): LlmResultTelemetry {
+    try {
+      return readLlmResultTelemetry(output);
+    } catch (error) {
+      reportError(this.onError, error);
+      return { attributes: {} };
+    }
+  }
+
+  private toolName(tool: unknown, runName: string | undefined) {
+    if (runName !== undefined) return runName;
+
+    try {
+      return readToolName(tool);
+    } catch (error) {
+      reportError(this.onError, error);
+      return undefined;
+    }
+  }
+
   runInActiveContext<T>(runId: string | undefined, operation: () => T): T {
     const runContext = runId === undefined ? undefined : this.activeRuns.get(runId)?.context;
     if (runContext === undefined) return operation();
@@ -283,7 +327,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         spanName(kind, name),
         {
           attributes: {
-            ...runAttributes(kind, name, runId, parentRunId, tags, metadata),
+            ...runAttributes(kind, name, metadata),
             ...attributes,
           },
         },
@@ -318,19 +362,24 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
     if (run.span !== undefined) {
       const span = run.span;
-      this.safely(() => span.setAttributes(attributes));
+      this.safely(() =>
+        span.setAttributes({
+          ...attributes,
+          "langchain.run.status": "ok",
+        }),
+      );
       this.safely(() => span.end());
     }
     this.recordDuration(run, "ok");
   }
 
-  private failRun(error: unknown, runId: string) {
+  private failRun(_error: unknown, runId: string) {
     const run = this.activeRuns.get(runId);
     this.activeRuns.delete(runId);
     if (run?.span === undefined) return;
 
     const span = run.span;
-    this.safely(() => span.recordException(error instanceof Error ? error : String(error)));
+    this.safely(() => span.setAttribute("langchain.run.status", "error"));
     this.safely(() => span.setStatus({ code: SpanStatusCode.ERROR }));
     this.safely(() => span.end());
     this.recordDuration(run, "error");
@@ -338,14 +387,18 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
   private endLlmRun(output: unknown, runId: string) {
     const run = this.activeRuns.get(runId);
-    const telemetry = readLlmResultTelemetry(output);
+    const telemetry = this.safelyReadLlmResultTelemetry(output);
 
     if (run?.metricAttributes !== undefined) {
+      const tokenAttributes = tokenMetricAttributes({
+        ...run.metricAttributes,
+        ...telemetry.attributes,
+      });
       if (telemetry.inputTokens !== undefined) {
         const inputTokens = telemetry.inputTokens;
         this.safely(() =>
           this.tokenUsage.record(inputTokens, {
-            ...run.metricAttributes,
+            ...tokenAttributes,
             "gen_ai.token.type": "input",
           }),
         );
@@ -354,7 +407,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         const outputTokens = telemetry.outputTokens;
         this.safely(() =>
           this.tokenUsage.record(outputTokens, {
-            ...run.metricAttributes,
+            ...tokenAttributes,
             "gen_ai.token.type": "output",
           }),
         );
@@ -424,7 +477,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   handleToolStart(
-    _tool: unknown,
+    tool: unknown,
     _input: string,
     runId: string,
     parentRunId?: string,
@@ -432,7 +485,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     metadata?: Record<string, unknown>,
     runName?: string,
   ) {
-    this.startRun("tool", runName, runId, parentRunId, tags, metadata);
+    this.startRun("tool", this.toolName(tool, runName), runId, parentRunId, tags, metadata);
   }
 
   handleToolEnd(_output: unknown, runId: string) {

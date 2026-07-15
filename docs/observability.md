@@ -74,9 +74,11 @@ exist; prefix project-specific attributes with the owning domain.
 
 `createLangChainTelemetryCallback` maps graph, node, LLM, tool, and retriever lifecycle events to
 OpenTelemetry spans and low-cardinality metrics. It records `langchain.run.duration` for visible runs
-and `gen_ai.client.token.usage` when LangChain exposes model usage metadata. Bind the callback once
-through LangGraph `withConfig({ callbacks })`; node functions must not manage those spans or metrics
-themselves. Hidden framework runs and high-cardinality checkpoint metadata are not exported.
+and `gen_ai.client.token.usage` when LangChain exposes model usage metadata. Token usage metric
+attributes are limited to token type plus provider and model metadata. Bind the callback once through
+LangGraph `withConfig({ callbacks })`; node functions must not manage those spans or metrics
+themselves. Hidden framework runs, callback run identifiers, tags, and high-cardinality checkpoint
+metadata are not exported.
 
 Register conditional routers as named LangChain runnables rather than plain functions when their
 execution should be traced. LangGraph 1.4.x marks its internal plain-function branch wrapper as
@@ -98,8 +100,9 @@ HTTP request
 ```
 
 LangGraph graph, node, LLM, tool, and retriever runs come from the LangChain callback. The callback
-uses run and parent-run identifiers to keep those spans in one trace. Supported HTTP and other client
-libraries may contribute automatic spans when their instrumentation is enabled.
+uses run and parent-run identifiers internally to keep those spans in one trace, but does not export
+those identifiers on child spans or metrics. Supported HTTP and other client libraries may contribute
+automatic spans when their instrumentation is enabled.
 
 LangChain callbacks observe lifecycle events but do not intercept the node function invocation by
 themselves. `createAgentGraph` therefore wraps each registered node with an active-context

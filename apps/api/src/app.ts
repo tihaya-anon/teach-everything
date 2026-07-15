@@ -71,6 +71,23 @@ const failureEvent = (errorClassification: AgentRunErrorClassification): Termina
   errorClassification,
 });
 
+const createExecutionCancellation = (requestSignal: AbortSignal) => {
+  const controller = new AbortController();
+  const cancel = (reason?: unknown) => {
+    if (!controller.signal.aborted) controller.abort(reason);
+  };
+  const cancelForRequestAbort = () => cancel(requestSignal.reason);
+
+  if (requestSignal.aborted) cancelForRequestAbort();
+  else requestSignal.addEventListener("abort", cancelForRequestAbort, { once: true });
+
+  return {
+    cancel,
+    release: () => requestSignal.removeEventListener("abort", cancelForRequestAbort),
+    signal: controller.signal,
+  };
+};
+
 const createAgentRunStream = (
   executor: AgentRunExecutor,
   agentRunId: string,
@@ -79,9 +96,9 @@ const createAgentRunStream = (
   telemetryScope: AgentRunTelemetryScope,
 ) => {
   const encoder = new TextEncoder();
-  let clientWritable = true;
   let completion: Promise<void> = Promise.resolve();
-  let requestCancellation: () => void = () => {};
+  let markStreamClosed: () => void = () => {};
+  let requestCancellation: (reason?: unknown) => void = () => {};
 
   return new ReadableStream<Uint8Array>({
     start: (controller) => {
@@ -91,27 +108,32 @@ const createAgentRunStream = (
       let cancellationDeadlineTimeout: ReturnType<typeof setTimeout> | undefined;
       let cleanupConfirmation: Promise<"cleanup" | "cleanup_failed"> | undefined;
       let iterator: AsyncIterator<AgentRunExecutorEvent> | undefined;
+      let streamOpen = true;
       let resolveCancellationRequested: () => void = () => {};
       const cancellationRequestedPromise = new Promise<"cancellation-requested">((resolve) => {
         resolveCancellationRequested = () => resolve("cancellation-requested");
       });
-      const executorCancellation = new AbortController();
+      const executionCancellation = createExecutionCancellation(requestSignal);
 
+      markStreamClosed = () => {
+        streamOpen = false;
+      };
       const send = (event: AgentRunEvent) => {
-        if (!clientWritable) return;
+        if (!streamOpen) return;
         try {
           controller.enqueue(encoder.encode(encodeAgentRunEventLine(event)));
         } catch {
-          clientWritable = false;
-          requestCancellation();
+          streamOpen = false;
+          requestCancellation(requestSignal.reason);
         }
       };
-      const close = () => {
-        if (!clientWritable) return;
+      const closeStream = () => {
+        if (!streamOpen) return;
+        streamOpen = false;
         try {
           controller.close();
         } catch {
-          clientWritable = false;
+          streamOpen = false;
         }
       };
       const clearCancellationDeadline = () => {
@@ -125,7 +147,7 @@ const createAgentRunStream = (
         clearCancellationDeadline();
         telemetryScope.finish(terminalTelemetryOutcome(event));
         send(event);
-        close();
+        closeStream();
       };
       const getCancellationDeadline = () => cancellationDeadline ?? Promise.resolve("deadline");
       const releaseIteratorSafely = async (
@@ -204,11 +226,11 @@ const createAgentRunStream = (
 
         return "confirmed" as const;
       };
-      const requestExecutorCancellation = () => {
+      const requestExecutorCancellation = (reason?: unknown) => {
         if (terminal || cancellationRequested) return;
         cancellationRequested = true;
         telemetryScope.recordCancellationRequested();
-        executorCancellation.abort();
+        executionCancellation.cancel(reason);
         cancellationDeadline = new Promise((resolve) => {
           cancellationDeadlineTimeout = setTimeout(
             () => resolve("deadline"),
@@ -218,6 +240,8 @@ const createAgentRunStream = (
         void getCleanupConfirmation();
         resolveCancellationRequested();
       };
+      const requestExecutorCancellationForRequestAbort = () =>
+        requestExecutorCancellation(requestSignal.reason);
       const failCancellation = () => {
         terminate(failureEvent("cancellation_failed"));
       };
@@ -236,14 +260,18 @@ const createAgentRunStream = (
       };
 
       requestCancellation = requestExecutorCancellation;
-      requestSignal.addEventListener("abort", requestExecutorCancellation, { once: true });
+      if (requestSignal.aborted) requestExecutorCancellationForRequestAbort();
+      else {
+        requestSignal.addEventListener("abort", requestExecutorCancellationForRequestAbort, {
+          once: true,
+        });
+      }
 
       completion = telemetryScope.runInContext(async () => {
         try {
           send({ version: 1, type: "run.started", agentRunId });
-          if (requestSignal.aborted) requestExecutorCancellation();
 
-          iterator = executor.execute(input, executorCancellation.signal)[Symbol.asyncIterator]();
+          iterator = executor.execute(input, executionCancellation.signal)[Symbol.asyncIterator]();
 
           while (!terminal) {
             const nextExecutorResult = createNextExecutorResult();
@@ -299,13 +327,15 @@ const createAgentRunStream = (
 
           terminate(failureEvent(getErrorClassification(error)));
         } finally {
-          requestSignal.removeEventListener("abort", requestExecutorCancellation);
+          requestSignal.removeEventListener("abort", requestExecutorCancellationForRequestAbort);
+          executionCancellation.release();
+          markStreamClosed = () => {};
         }
       });
     },
-    cancel: () => {
-      clientWritable = false;
-      requestCancellation();
+    cancel: (reason) => {
+      markStreamClosed();
+      requestCancellation(reason);
       return completion;
     },
   });
