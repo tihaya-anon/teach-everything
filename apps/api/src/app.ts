@@ -75,7 +75,7 @@ const createAgentRunStream = (
   executor: AgentRunExecutor,
   agentRunId: string,
   input: ReturnType<typeof agentRunRequestSchema.parse>,
-  signal: AbortSignal,
+  requestSignal: AbortSignal,
   telemetryScope: AgentRunTelemetryScope,
 ) => {
   const encoder = new TextEncoder();
@@ -147,13 +147,62 @@ const createAgentRunStream = (
         );
         return cleanupConfirmation;
       };
-      const raceCancellationConfirmation = (nextExecutorResult: Promise<ExecutorNextResult>) => {
-        const cleanup = getCleanupConfirmation();
-        return Promise.race(
-          cleanup === undefined
-            ? [nextExecutorResult, getCancellationDeadline()]
-            : [nextExecutorResult, cleanup, getCancellationDeadline()],
+      const createNextExecutorResult = () =>
+        iterator!.next().then(
+          (result) => ({ result, type: "next" as const }),
+          (error: unknown) => ({ error, type: "error" as const }),
         );
+      const waitForCancellationConfirmation = async (
+        initialNextExecutorResult: Promise<ExecutorNextResult>,
+      ) => {
+        const cleanup = getCleanupConfirmation();
+        let cleanupConfirmed = cleanup === undefined;
+        let executorConfirmed = false;
+        let nextExecutorResult = initialNextExecutorResult;
+
+        while (!cleanupConfirmed || !executorConfirmed) {
+          const progress = await Promise.race([
+            getCancellationDeadline(),
+            ...(cleanupConfirmed || cleanup === undefined ? [] : [cleanup]),
+            ...(executorConfirmed ? [] : [nextExecutorResult]),
+          ]);
+
+          if (progress === "deadline" || progress === "cleanup_failed") {
+            return "failed" as const;
+          }
+
+          if (progress === "cleanup") {
+            cleanupConfirmed = true;
+            continue;
+          }
+
+          if (progress.type === "error") {
+            return "failed" as const;
+          }
+
+          if (progress.result.done === true) {
+            executorConfirmed = true;
+            continue;
+          }
+
+          const parsedEvent = agentRunExecutorEventSchema.safeParse(progress.result.value);
+          if (!parsedEvent.success) {
+            return "failed" as const;
+          }
+
+          if (isTerminalEvent(parsedEvent.data)) {
+            if (parsedEvent.data.type === "run.failed") {
+              return "failed" as const;
+            }
+
+            executorConfirmed = true;
+            continue;
+          }
+
+          nextExecutorResult = createNextExecutorResult();
+        }
+
+        return "confirmed" as const;
       };
       const requestExecutorCancellation = () => {
         if (terminal || cancellationRequested) return;
@@ -175,75 +224,45 @@ const createAgentRunStream = (
       const finishConfirmedCancellation = () => {
         terminate({ version: 1, type: "run.cancelled" });
       };
-      const finishCancellationAfterCleanup = async () => {
-        const cleanup = getCleanupConfirmation();
-        if (cleanup === undefined) {
+      const finishCancellationAfterConfirmation = (
+        confirmation: Awaited<ReturnType<typeof waitForCancellationConfirmation>>,
+      ) => {
+        if (confirmation === "confirmed") {
           finishConfirmedCancellation();
           return;
         }
 
-        const cleanupResult = await Promise.race([cleanup, getCancellationDeadline()]);
-        if (cleanupResult === "deadline" || cleanupResult === "cleanup_failed") {
-          failCancellation();
-          return;
-        }
-
-        finishConfirmedCancellation();
+        failCancellation();
       };
 
       requestCancellation = requestExecutorCancellation;
-      signal.addEventListener("abort", requestExecutorCancellation, { once: true });
+      requestSignal.addEventListener("abort", requestExecutorCancellation, { once: true });
 
       completion = telemetryScope.runInContext(async () => {
         try {
           send({ version: 1, type: "run.started", agentRunId });
-          if (signal.aborted) requestExecutorCancellation();
+          if (requestSignal.aborted) requestExecutorCancellation();
 
           iterator = executor.execute(input, executorCancellation.signal)[Symbol.asyncIterator]();
 
           while (!terminal) {
-            const nextExecutorResult: Promise<ExecutorNextResult> = iterator.next().then(
-              (result) => ({ result, type: "next" as const }),
-              (error: unknown) => ({ error, type: "error" as const }),
-            );
+            const nextExecutorResult = createNextExecutorResult();
             let executorResult = cancellationRequested
-              ? await raceCancellationConfirmation(nextExecutorResult)
+              ? await waitForCancellationConfirmation(nextExecutorResult)
               : await Promise.race([nextExecutorResult, cancellationRequestedPromise]);
 
             if (executorResult === "cancellation-requested") {
-              executorResult = await raceCancellationConfirmation(nextExecutorResult);
+              executorResult = await waitForCancellationConfirmation(nextExecutorResult);
             }
 
-            if (executorResult === "deadline") {
-              failCancellation();
-              return;
-            }
-
-            if (executorResult === "cleanup_failed") {
-              failCancellation();
-              return;
-            }
-
-            if (executorResult === "cleanup") {
-              finishConfirmedCancellation();
+            if (executorResult === "confirmed" || executorResult === "failed") {
+              finishCancellationAfterConfirmation(executorResult);
               return;
             }
 
             if (cancellationRequested) {
-              if (executorResult.type === "error" || executorResult.result.done === true) {
-                await finishCancellationAfterCleanup();
-                return;
-              }
-
-              const parsedEvent = agentRunExecutorEventSchema.safeParse(
-                executorResult.result.value,
-              );
-              if (parsedEvent.success && isTerminalEvent(parsedEvent.data)) {
-                await finishCancellationAfterCleanup();
-                return;
-              }
-
-              continue;
+              failCancellation();
+              return;
             }
 
             if (executorResult.type === "error") {
@@ -274,13 +293,13 @@ const createAgentRunStream = (
           }
         } catch (error) {
           if (cancellationRequested) {
-            terminate({ version: 1, type: "run.cancelled" });
+            failCancellation();
             return;
           }
 
           terminate(failureEvent(getErrorClassification(error)));
         } finally {
-          signal.removeEventListener("abort", requestExecutorCancellation);
+          requestSignal.removeEventListener("abort", requestExecutorCancellation);
         }
       });
     },
