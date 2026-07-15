@@ -22,6 +22,7 @@ import {
   type AgentRunErrorClassification,
   type AgentRunExecutorEvent,
 } from "@teach-everything/shared";
+import { serve } from "@hono/node-server";
 import { afterEach, describe, expect, it } from "vitest";
 import { app, createApp } from "./app";
 
@@ -192,6 +193,84 @@ const installThrowingMeterProvider = () => {
   } satisfies ApiMeterProvider);
 };
 
+const waitForAbort = (signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+
+const withTimeout = async <T>(promise: Promise<T>, message: string) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), 1_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
+
+const startEphemeralApi = (api: ReturnType<typeof createApp>) =>
+  new Promise<{ close: () => Promise<void>; origin: string }>((resolve) => {
+    const server = serve({ fetch: api.fetch, port: 0 }, (info) => {
+      resolve({
+        close: () =>
+          new Promise<void>((closeResolve, closeReject) => {
+            server.close((error) => {
+              if (error) closeReject(error);
+              else closeResolve();
+            });
+          }),
+        origin: `http://127.0.0.1:${info.port}`,
+      });
+    });
+  });
+
+const controlledCancellationExecutor = () => {
+  let abortEvents = 0;
+  let running = false;
+  let resolveSignal!: (signal: AbortSignal) => void;
+  let resolveStopped!: () => void;
+  const receivedSignal = new Promise<AbortSignal>((resolve) => {
+    resolveSignal = resolve;
+  });
+  const stopped = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
+
+  return {
+    abortEvents: () => abortEvents,
+    executor: {
+      async *execute(_input, signal) {
+        running = true;
+        signal.addEventListener(
+          "abort",
+          () => {
+            abortEvents += 1;
+          },
+          { once: true },
+        );
+        resolveSignal(signal);
+        yield { version: 1, type: "message.delta", text: "Executor started." };
+
+        await waitForAbort(signal);
+        running = false;
+        resolveStopped();
+      },
+    } satisfies AgentRunExecutor,
+    isRunning: () => running,
+    receivedSignal,
+    stopped,
+  };
+};
+
 afterEach(() => {
   context.disable();
   metrics.disable();
@@ -280,6 +359,113 @@ describe("POST /api/agent-runs", () => {
       { version: 1, type: "message.delta", text: "That is lexical scoping." },
       { version: 1, type: "run.completed" },
     ]);
+  });
+
+  it("releases the request abort listener after Agent Run execution settles", async () => {
+    // Given
+    let receivedSignal: AbortSignal | undefined;
+    const requestCancellation = new AbortController();
+    const api = createApp({
+      agentRunExecutor: {
+        async *execute(_input, signal) {
+          receivedSignal = signal;
+          yield { version: 1, type: "run.completed" };
+        },
+      },
+      createAgentRunId: () => "ar_release_cancellation_listener",
+    });
+    const request = new Request("http://localhost/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Complete before cancellation." }),
+      signal: requestCancellation.signal,
+    });
+
+    // When
+    const response = await api.request(request);
+    await response.text();
+    requestCancellation.abort();
+
+    // Then
+    expect(receivedSignal?.aborted).toBe(false);
+  });
+
+  it("stops executor work when the Agent Run response stream is cancelled", async () => {
+    // Given
+    const controlled = controlledCancellationExecutor();
+    const requestCancellation = new AbortController();
+    const api = createApp({
+      agentRunExecutor: controlled.executor,
+      createAgentRunId: () => "ar_stream_cancel",
+    });
+    const request = new Request("http://localhost/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Cancel the response stream." }),
+      signal: requestCancellation.signal,
+    });
+
+    // When
+    const response = await api.request(request);
+    const executorSignal = await withTimeout(
+      controlled.receivedSignal,
+      "Timed out waiting for executor signal",
+    );
+    await response.body?.cancel();
+    await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
+    requestCancellation.abort();
+
+    // Then
+    expect(executorSignal.aborted).toBe(true);
+    expect(controlled.abortEvents()).toBe(1);
+    expect(controlled.isRunning()).toBe(false);
+  });
+
+  it("propagates a real Node HTTP client abort to the executor and stops controlled work", async () => {
+    // Given
+    const controlled = controlledCancellationExecutor();
+    const logs: CapturedLogRecord[] = [];
+    const server = await startEphemeralApi(
+      createApp({
+        agentRunExecutor: controlled.executor,
+        createAgentRunId: () => "ar_http_abort",
+        logger: createCapturingLogger(logs),
+      }),
+    );
+    const clientCancellation = new AbortController();
+
+    try {
+      const response = await fetch(`${server.origin}/api/agent-runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Start controlled work." }),
+        signal: clientCancellation.signal,
+      });
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Expected streamed response body");
+
+      // When
+      await withTimeout(reader.read(), "Timed out waiting for Agent Run stream to start");
+      const executorSignal = await withTimeout(
+        controlled.receivedSignal,
+        "Timed out waiting for executor signal",
+      );
+      clientCancellation.abort();
+      await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
+
+      // Then
+      expect(response.status).toBe(200);
+      expect(executorSignal.aborted).toBe(true);
+      expect(controlled.abortEvents()).toBe(1);
+      expect(controlled.isRunning()).toBe(false);
+      expect(
+        logs
+          .filter((record) => record.attributes["agent.run.id"] === "ar_http_abort")
+          .map((record) => record.eventName),
+      ).toEqual(["agent.run.accepted"]);
+    } finally {
+      await server.close();
+    }
   });
 
   it("emits metadata-only root telemetry for a successful Agent Run", async () => {

@@ -59,26 +59,58 @@ const failureEvent = (errorClassification: AgentRunErrorClassification): Termina
   errorClassification,
 });
 
+const createExecutionCancellation = (requestSignal: AbortSignal) => {
+  const controller = new AbortController();
+  const cancel = (reason?: unknown) => {
+    if (!controller.signal.aborted) controller.abort(reason);
+  };
+  const cancelForRequestAbort = () => cancel(requestSignal.reason);
+
+  if (requestSignal.aborted) cancelForRequestAbort();
+  else requestSignal.addEventListener("abort", cancelForRequestAbort, { once: true });
+
+  return {
+    cancel,
+    release: () => requestSignal.removeEventListener("abort", cancelForRequestAbort),
+    signal: controller.signal,
+  };
+};
+
 const createAgentRunStream = (
   executor: AgentRunExecutor,
   agentRunId: string,
   input: ReturnType<typeof agentRunRequestSchema.parse>,
-  signal: AbortSignal,
+  requestSignal: AbortSignal,
   telemetryScope: AgentRunTelemetryScope,
 ) => {
   const encoder = new TextEncoder();
+  let cancelExecution: ((reason?: unknown) => void) | undefined;
+  let markStreamClosed: (() => void) | undefined;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       let terminal = false;
-      const send = (event: AgentRunEvent) =>
+      let streamOpen = true;
+      const cancellation = createExecutionCancellation(requestSignal);
+      cancelExecution = cancellation.cancel;
+      markStreamClosed = () => {
+        streamOpen = false;
+      };
+      const closeStream = () => {
+        if (!streamOpen) return;
+        streamOpen = false;
+        controller.close();
+      };
+      const send = (event: AgentRunEvent) => {
+        if (!streamOpen) return;
         controller.enqueue(encoder.encode(encodeAgentRunEventLine(event)));
+      };
       const terminate = (event: TerminalAgentRunEvent) => {
         if (terminal) return;
         terminal = true;
         telemetryScope.finish(terminalTelemetryOutcome(event));
         send(event);
-        controller.close();
+        closeStream();
       };
 
       telemetryScope.runInContext(() => {
@@ -87,7 +119,9 @@ const createAgentRunStream = (
 
       await telemetryScope.runInContext(async () => {
         try {
-          for await (const executorEvent of executor.execute(input, signal)) {
+          for await (const executorEvent of executor.execute(input, cancellation.signal)) {
+            if (cancellation.signal.aborted) return;
+
             const parsedEvent = agentRunExecutorEventSchema.safeParse(executorEvent);
             if (!parsedEvent.success) {
               terminate(failureEvent("internal"));
@@ -102,11 +136,22 @@ const createAgentRunStream = (
             send(parsedEvent.data);
           }
 
+          if (cancellation.signal.aborted) return;
           terminate(failureEvent("internal"));
         } catch (error) {
+          if (cancellation.signal.aborted) return;
           terminate(failureEvent(getErrorClassification(error)));
+        } finally {
+          cancellation.release();
+          cancelExecution = undefined;
+          markStreamClosed = undefined;
+          if (cancellation.signal.aborted) closeStream();
         }
       });
+    },
+    cancel() {
+      markStreamClosed?.();
+      cancelExecution?.(requestSignal.reason);
     },
   });
 };
