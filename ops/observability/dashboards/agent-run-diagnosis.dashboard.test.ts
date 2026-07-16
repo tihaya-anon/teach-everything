@@ -243,7 +243,7 @@ describe("Agent Run Diagnosis dashboard", () => {
 
     // Then
     expect(logQuery).toBe(
-      '{service_name="teach-everything-api"} | json | attributes_agent_run_id="$agent_run_id"',
+      '{service_name="teach-everything-api"} | json | __error__="" | attributes_agent_run_id != "" | attributes_agent_run_id="$agent_run_id"',
     );
     expect(logsPanel.options).toEqual(
       expect.objectContaining({

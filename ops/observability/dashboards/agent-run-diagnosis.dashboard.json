@@ -222,7 +222,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=\"teach-everything-api\"} | json | attributes_agent_run_id=\"$agent_run_id\"",
+          "expr": "{service_name=\"teach-everything-api\"} | json | __error__=\"\" | attributes_agent_run_id != \"\" | attributes_agent_run_id=\"$agent_run_id\"",
           "queryType": "range"
         }
       ],

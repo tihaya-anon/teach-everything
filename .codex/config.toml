@@ -32,3 +32,21 @@ approval_mode = "approve"
 
 [mcp_servers.playwright.tools.browser_fill_form]
 approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_tabs]
+approval_mode = "approve"
+
+[mcp_servers.playwright.tools.browser_navigate]
+approval_mode = "approve"
+
+[mcp_servers.grafana]
+command = "uvx"
+args = ["mcp-grafana"]
+env_vars = ["GRAFANA_SERVICE_ACCOUNT_TOKEN"]
+
+[mcp_servers.grafana.env]
+GRAFANA_URL = "http://localhost:3000"
+UV_CACHE_DIR = "/tmp/.uv-cache"
+
+[mcp_servers.grafana.tools.grafana_api_request]
+approval_mode = "approve"

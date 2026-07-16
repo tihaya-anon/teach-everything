@@ -314,7 +314,17 @@ const run = async () => {
 
     await sleep(exportSettleMs);
 
-    process.stdout.write(`${JSON.stringify({ exportSettleMs, results }, null, 2)}\n`);
+    logger.info("Agent Run diagnosis acceptance completed", {
+      attributes: {
+        "agent.run.acceptance.export_settle_ms": exportSettleMs,
+        "agent.run.acceptance.results": results.map((result) => ({
+          "agent.run.id": result.agentRunId,
+          events: result.events,
+          scenario: result.scenario,
+        })),
+      },
+      eventName: "agent.run.acceptance.completed",
+    });
   } catch (error) {
     runError = error;
   } finally {
