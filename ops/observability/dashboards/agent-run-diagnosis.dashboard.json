@@ -1,0 +1,240 @@
+{
+  "uid": "agent-run-diagnosis",
+  "title": "Agent Run Diagnosis",
+  "description": "Diagnose one Teach Everything Agent Run from its opaque Agent Run Identifier.",
+  "tags": ["teach-everything", "agent-run-diagnosis"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "",
+  "templating": {
+    "list": [
+      {
+        "name": "agent_run_id",
+        "label": "Agent Run Identifier",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Selected Agent Run Summary",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span:name = \"agent.run\" && span.\"agent.run.id\" = \"$agent_run_id\" } | select(span:name, trace:id, span:duration, span.\"agent.run.outcome\", span.\"error.type\")",
+          "limit": 20
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": ["sum"],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "traces",
+      "title": "Complete Trace",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span:name = \"agent.run\" && span.\"agent.run.id\" = \"$agent_run_id\" }",
+          "limit": 20
+        }
+      ],
+      "options": {},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Slow or Failed Model and Tool Operations",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span:name = \"agent.run\" && span.\"agent.run.id\" = \"$agent_run_id\" } >> { span.\"langchain.run.kind\" =~ \"llm|tool\" && span:duration > 1s } | select(span:name, trace:id, span:duration, span:status, span.\"langchain.run.kind\", span.\"langchain.run.name\", span.\"gen_ai.tool.name\", span.\"gen_ai.provider.name\", span.\"gen_ai.request.model\", span.\"gen_ai.response.model\", span.\"gen_ai.usage.input_tokens\", span.\"gen_ai.usage.output_tokens\")",
+          "limit": 20
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span:name = \"agent.run\" && span.\"agent.run.id\" = \"$agent_run_id\" } >> { span.\"langchain.run.kind\" =~ \"llm|tool\" && span:status = error } | select(span:name, trace:id, span:duration, span:status, span.\"langchain.run.kind\", span.\"langchain.run.name\", span.\"gen_ai.tool.name\", span.\"gen_ai.provider.name\", span.\"gen_ai.request.model\", span.\"gen_ai.response.model\", span.\"gen_ai.usage.input_tokens\", span.\"gen_ai.usage.output_tokens\")",
+          "limit": 20
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": ["sum"],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Correlated Agent Run Logs",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"teach-everything-api\"} | json | attributes_agent_run_id=\"$agent_run_id\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}
