@@ -58,6 +58,7 @@ const withActiveNodeContext = (node: AgentNode): AgentNode => {
       );
   }
 
+  // LangGraph accepts both Runnable nodes and map-shaped nodes; map nodes need conversion.
   const runnable = isAgentRunnable(node)
     ? node
     : RunnableMap.from<AgentState, AgentStateUpdate | Partial<AgentState>>(node);

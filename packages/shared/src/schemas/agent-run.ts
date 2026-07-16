@@ -83,6 +83,7 @@ export const agentRunEventLineSchema = z.preprocess((line) => {
     return undefined;
   }
 
+  // NDJSON streams may use LF or CRLF; strip exactly one record terminator.
   const record = line.endsWith("\r\n")
     ? line.slice(0, -2)
     : line.endsWith("\n")

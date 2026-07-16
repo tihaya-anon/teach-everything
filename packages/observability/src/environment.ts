@@ -31,6 +31,7 @@ const parseSinks = (environment: NodeJS.ProcessEnv): LogSinkConfig[] => {
     environment.LOG_FORMAT === undefined
       ? undefined
       : parseFormat(environment.LOG_FORMAT, "LOG_FORMAT");
+  // Development logs default to human-readable stdout plus a structured file sink.
   const sinkNames = (environment.LOG_SINKS ?? (isDevelopment ? "stdout,file" : "stdout"))
     .split(",")
     .map((value) => value.trim().toLowerCase())

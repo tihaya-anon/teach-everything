@@ -12,6 +12,20 @@ import { api } from "./api";
 type ApiState =
   { status: "loading" } | { status: "ready"; data: HealthResponse } | { status: "error" };
 
+const getApiStatusLabel = (apiState: ApiState) => {
+  if (apiState.status === "loading") return "Connecting";
+  if (apiState.status === "ready") return apiState.data.message;
+
+  return "API unavailable";
+};
+
+const getApiStatusIndicatorClass = (apiState: ApiState) => {
+  if (apiState.status === "ready") return "bg-emerald-400";
+  if (apiState.status === "error") return "bg-red-400";
+
+  return "animate-pulse bg-amber-300";
+};
+
 const useApiState = () => {
   const [apiState, setApiState] = useState<ApiState>({ status: "loading" });
 
@@ -42,12 +56,8 @@ const Workspace = () => {
   const apiState = useApiState();
   const aui = useAui();
   const { theme, toggleTheme } = useTheme();
-  const statusLabel =
-    apiState.status === "loading"
-      ? "Connecting"
-      : apiState.status === "ready"
-        ? apiState.data.message
-        : "API unavailable";
+  const statusLabel = getApiStatusLabel(apiState);
+  const statusIndicatorClass = getApiStatusIndicatorClass(apiState);
 
   const startNewConversation = () => aui.thread().reset();
 
@@ -75,16 +85,7 @@ const Workspace = () => {
 
         <div className="border-t border-white/8 px-5 py-4">
           <div className="flex items-center gap-2 text-xs text-white/55">
-            <span
-              className={`size-2 rounded-full ${
-                apiState.status === "ready"
-                  ? "bg-emerald-400"
-                  : apiState.status === "error"
-                    ? "bg-red-400"
-                    : "animate-pulse bg-amber-300"
-              }`}
-              aria-hidden="true"
-            />
+            <span className={`size-2 rounded-full ${statusIndicatorClass}`} aria-hidden="true" />
             <span className="truncate">{statusLabel}</span>
           </div>
         </div>
