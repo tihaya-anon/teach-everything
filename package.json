@@ -9,7 +9,7 @@
     "test": "vitest run && pnpm test:github-scripts",
     "test:github-scripts": "node --import tsx --test scripts/github/*.test.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/github/tsconfig.json && pnpm -r typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/github/tsconfig.json && tsc --noEmit -p ops/observability/dashboards/tsconfig.json && pnpm -r typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",

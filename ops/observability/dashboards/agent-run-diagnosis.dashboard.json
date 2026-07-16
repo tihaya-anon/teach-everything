@@ -135,7 +135,7 @@
     {
       "id": 3,
       "type": "table",
-      "title": "Slow or Failed Model and Tool Operations",
+      "title": "Slow Model and Tool Operations",
       "gridPos": {
         "h": 10,
         "w": 24,
@@ -156,9 +156,58 @@
           "queryType": "traceql",
           "query": "{ span:name = \"agent.run\" && span.\"agent.run.id\" = \"$agent_run_id\" } >> { span.\"langchain.run.kind\" =~ \"llm|tool\" && span:duration > 1s } | select(span:name, trace:id, span:duration, span:status, span.\"langchain.run.kind\", span.\"langchain.run.name\", span.\"gen_ai.tool.name\", span.\"gen_ai.provider.name\", span.\"gen_ai.request.model\", span.\"gen_ai.response.model\", span.\"gen_ai.usage.input_tokens\", span.\"gen_ai.usage.output_tokens\")",
           "limit": 20
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": ["sum"],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Failed Model and Tool Operations",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
         {
-          "refId": "B",
+          "refId": "A",
           "datasource": {
             "type": "tempo",
             "uid": "tempo"
@@ -202,14 +251,14 @@
       }
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "logs",
       "title": "Correlated Agent Run Logs",
       "gridPos": {
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 37
       },
       "datasource": {
         "type": "loki",

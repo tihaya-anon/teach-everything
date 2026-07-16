@@ -215,13 +215,22 @@ describe("Agent Run Diagnosis dashboard", () => {
   it("finds slow and failed child model or tool operations through the selected root", async () => {
     // Given
     const dashboard = await readDashboard();
-    const operationsPanel = panelByTitle(dashboard, "Slow or Failed Model and Tool Operations");
+    const slowOperationsPanel = panelByTitle(dashboard, "Slow Model and Tool Operations");
+    const failedOperationsPanel = panelByTitle(dashboard, "Failed Model and Tool Operations");
 
     // When
-    const operationQueries = targetsFrom(operationsPanel).map(queryTextFrom);
+    const slowOperationTargets = targetsFrom(slowOperationsPanel);
+    const failedOperationTargets = targetsFrom(failedOperationsPanel);
+    const slowOperationQuery = queryTextFrom(slowOperationTargets[0] ?? {});
+    const failedOperationQuery = queryTextFrom(failedOperationTargets[0] ?? {});
+    const operationQueries = [...slowOperationTargets, ...failedOperationTargets].map(
+      queryTextFrom,
+    );
     const allOperationQueries = operationQueries.join("\n");
 
     // Then
+    expect(slowOperationTargets).toHaveLength(1);
+    expect(failedOperationTargets).toHaveLength(1);
     expect(operationQueries).toHaveLength(2);
     expect(allOperationQueries).toContain('span:name = "agent.run"');
     expect(allOperationQueries).toContain('span."agent.run.id" = "$agent_run_id"');
@@ -231,6 +240,8 @@ describe("Agent Run Diagnosis dashboard", () => {
     expect(allOperationQueries).toContain("span:status = error");
     expect(allOperationQueries).toContain('span."gen_ai.tool.name"');
     expect(allOperationQueries).toContain('span."gen_ai.provider.name"');
+    expect(slowOperationQuery).toContain("span:duration > 1s");
+    expect(failedOperationQuery).toContain("span:status = error");
   });
 
   it("restricts correlated logs to the API service and selected Agent Run Identifier", async () => {
