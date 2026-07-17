@@ -4,6 +4,8 @@
 
 Do not manually run formatting or lint commands during development. Formatting is handled by the `PostToolUse` hook and linting is handled by the `Stop` hook. Run only the targeted tests, type checks, and builds needed to verify the current change.
 
+When presenting architecture reviews, planning notes, or visual thinking artifacts for this repository, use Markdown rather than generated HTML. Mermaid diagrams inside Markdown are encouraged when they clarify module relationships, flows, or before/after architecture. Do not create temporary HTML reports unless the user explicitly asks for HTML.
+
 ## Project Structure & Module Organization
 
 This repository is a pnpm workspace containing two applications and three shared packages:

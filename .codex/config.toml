@@ -50,3 +50,7 @@ UV_CACHE_DIR = "/tmp/.uv-cache"
 
 [mcp_servers.grafana.tools.grafana_api_request]
 approval_mode = "approve"
+
+[mcp_servers.github]
+url = "https://api.githubcopilot.com/mcp/"
+bearer_token_env_var = "GITHUB_PAT_TOKEN"

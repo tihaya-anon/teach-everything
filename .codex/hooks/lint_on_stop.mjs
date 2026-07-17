@@ -24,11 +24,15 @@ const main = async () => {
   const repositoryRoot = findRepositoryRoot(
     typeof input.cwd === "string" ? input.cwd : process.cwd(),
   );
-  const result = spawnSync("pnpm", ["lint"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-    maxBuffer: maxLintOutputBuffer,
-  });
+  const result = spawnSync(
+    "pnpm",
+    ["exec", "eslint", ".", "--cache", "--cache-location", "node_modules/.cache/eslint/"],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      maxBuffer: maxLintOutputBuffer,
+    },
+  );
 
   if (!result.error && result.status === 0) {
     writeHookOutput({});
