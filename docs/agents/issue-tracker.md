@@ -1,30 +1,27 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues. Repository scripts wrap the mutation
-commands that need stable REST payloads; use the `gh` CLI directly for read-only operations
-and other issue updates.
+Issues and PRDs for this repo live as GitHub issues. Use the GitHub MCP server for issue
+reads and writes. Repository scripts only wrap label configuration that GitHub MCP does
+not currently expose.
 
 ## Conventions
 
-- Create issues with `pnpm github:issue:create -- --title <title> --body-file <path>`.
-  Repeat `--label <name>` to apply labels. The script creates through the REST API, repairs
-  labels omitted from the create response, and verifies the stored labels before succeeding.
-  If label finalization fails after creation, the error reports the created issue URL; do not
-  rerun issue creation as though no issue exists.
+- Create issues with GitHub MCP `issue_write` using `method: "create"`. Pass `owner`,
+  `repo`, `title`, `body`, and any `labels` directly to the tool.
+- Read, update, comment on, and close issues with GitHub MCP `issue_read`, `issue_write`,
+  `search_issues`, `list_issues`, and `add_issue_comment`.
 - Ensure a label exists with
   `pnpm github:label:ensure -- --name <name> --color <RRGGBB> --description <text>`.
   The script creates a missing label or updates an existing label to match, then verifies its
   name, color, and description. The color must omit the leading `#`.
-- For an issue or label owned by a sibling repository, run the same scripts from this repository
-  with `--repo <owner/repo>`, for example
-  `pnpm github:issue:create -- --repo example/platform --title <title> --body-file <path>`.
-  Do not bypass the scripts with direct `gh issue create` or label mutation commands.
-- Read, update, comment on, and close issues using `gh issue`.
+- For a label owned by a sibling repository, run the label script from this repository with
+  `--repo <owner/repo>`.
 - Infer the default repository from `git remote -v`; use `--repo` when the owning repository is not
   the current checkout.
-- When a skill says "publish to the issue tracker", write the issue body to a temporary
-  Markdown file and invoke `github:issue:create`. Remove the temporary file after verification.
-- When a skill says "fetch the relevant ticket", run `gh issue view <number> --comments`.
+- When a skill says "publish to the issue tracker", create the issue with GitHub MCP
+  `issue_write`.
+- When a skill says "fetch the relevant ticket", use GitHub MCP `issue_read` with
+  `method: "get"` and `method: "get_comments"` as needed.
 
 ## Pull requests as a triage surface
 

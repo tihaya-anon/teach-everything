@@ -3,7 +3,6 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
-    "github:issue:create": "node --import tsx scripts/github/create-issue.ts",
     "github:label:ensure": "node --import tsx scripts/github/ensure-label.ts",
     "build": "pnpm -r build",
     "test": "vitest run && pnpm test:github-scripts",
