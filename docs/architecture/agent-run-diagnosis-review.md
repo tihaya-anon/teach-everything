@@ -192,11 +192,13 @@ Files:
 
 Problem:
 
-`langchain.ts` mixes LangChain callback adaptation, active-run state, OpenTelemetry implementation, metadata extraction, token accounting, privacy filtering, and fail-open handling.
+`langchain.ts` mixes LangChain callback adaptation, active-run state, OpenTelemetry implementation, lightweight metadata extraction, token accounting, telemetry profile decisions, and fail-open handling.
 
 Solution:
 
-Split a metadata-only diagnostic extraction module from the LangChain callback adapter. The adapter translates framework events; the deeper module owns extraction and privacy decisions.
+Split a metadata-only diagnostic extraction module from the LangChain callback adapter. The adapter translates framework events; the deeper module owns the current lightweight metadata profile: run kind/name, graph node/step, provider/model, finish reason, token counts, tool name, and metric-friendly attributes.
+
+The metadata-only shape is a v1 product-stage choice for operational diagnosis, not a permanent privacy boundary. Future prompt-engineering or payload-aware dashboards should use a separate diagnostic profile/module with explicit storage, cardinality, and access-control decisions, rather than expanding the lightweight operational metadata path by accident.
 
 Before:
 
@@ -205,7 +207,7 @@ flowchart LR
   LC[LangChain callbacks] --> Handler[OpenTelemetryCallbackHandler]
   Handler --> State[active run state]
   Handler --> Extract[metadata extraction]
-  Handler --> Privacy[privacy filtering]
+  Handler --> Profile[metadata profile decisions]
   Handler --> Spans[spans]
   Handler --> Metrics[token metrics]
 ```
@@ -215,15 +217,15 @@ After:
 ```mermaid
 flowchart LR
   LC[LangChain callbacks] --> Adapter[callback adapter]
-  Adapter --> Diagnostic[Deep metadata-only extraction module]
+  Adapter --> Diagnostic[Deep lightweight metadata module]
   Diagnostic --> Intent[span and metric intent]
-  Diagnostic --> Privacy[privacy decisions]
+  Diagnostic --> Profile[metadata profile decisions]
   Tests[extraction tests] --> Diagnostic
 ```
 
 Benefits:
 
-- locality: privacy filtering central
+- locality: lightweight metadata rules central
 - leverage: extraction tests stay focused
 - adapter absorbs LangChain drift
 - fail-open paths get smaller

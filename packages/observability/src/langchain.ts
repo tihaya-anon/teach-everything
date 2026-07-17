@@ -1,7 +1,3 @@
-import {
-  OpenInferenceSpanKind,
-  SemanticConventions,
-} from "@arizeai/openinference-semantic-conventions";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import {
   SpanStatusCode,
@@ -14,6 +10,19 @@ import {
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
+import {
+  llmOperationAttribute,
+  readLlmEndMetadata,
+  readLlmTokenMetricAttributes,
+  readRunStartMetadata,
+  readToolName,
+  runDurationMetricName,
+  runStatusAttribute,
+  tokenTypeAttribute,
+  tokenUsageMetricName,
+  type LangChainLlmEndMetadata,
+  type LangChainRunKind,
+} from "./langchain-diagnostics";
 
 export type LangChainTelemetryOptions = {
   instrumentationName: string;
@@ -32,204 +41,7 @@ type ActiveRun = {
   startedAt?: number;
 };
 
-type RunKind = "chain" | "llm" | "retriever" | "tool";
-
-const openInferenceSpanKind = (kind: RunKind): OpenInferenceSpanKind => {
-  switch (kind) {
-    case "chain":
-      return OpenInferenceSpanKind.CHAIN;
-    case "llm":
-      return OpenInferenceSpanKind.LLM;
-    case "retriever":
-      return OpenInferenceSpanKind.RETRIEVER;
-    case "tool":
-      return OpenInferenceSpanKind.TOOL;
-  }
-};
-
-const runStatusAttribute = `${SemanticConventions.METADATA}.langchain.run.status` as const;
-
-const llmOperationAttribute = `${SemanticConventions.METADATA}.llm.operation.name` as const;
-
-const langGraphStepAttribute = `${SemanticConventions.METADATA}.langgraph.step` as const;
-
-const tokenTypeAttribute = `${SemanticConventions.METADATA}.llm.token.type` as const;
-
-const commonRunAttributes = (
-  kind: RunKind,
-  name: string | undefined,
-  metadata: Record<string, unknown> | undefined,
-): Attributes => {
-  const attributes: Attributes = {
-    [SemanticConventions.OPENINFERENCE_SPAN_KIND]: openInferenceSpanKind(kind),
-  };
-
-  if (kind === "chain" && name !== undefined) {
-    attributes[SemanticConventions.AGENT_NAME] = name;
-  }
-  if (kind === "tool" && name !== undefined) {
-    attributes[SemanticConventions.TOOL_NAME] = name;
-  }
-  if (typeof metadata?.ls_provider === "string") {
-    attributes[SemanticConventions.LLM_PROVIDER] = metadata.ls_provider;
-  }
-  if (typeof metadata?.ls_model_name === "string") {
-    attributes[SemanticConventions.LLM_MODEL_NAME] = metadata.ls_model_name;
-  }
-
-  return attributes;
-};
-
-const runAttributes = (
-  kind: RunKind,
-  name: string | undefined,
-  metadata: Record<string, unknown> | undefined,
-): Attributes => {
-  const attributes = commonRunAttributes(kind, name, metadata);
-
-  if (typeof metadata?.langgraph_node === "string") {
-    attributes[SemanticConventions.GRAPH_NODE_NAME] = metadata.langgraph_node;
-  }
-  if (typeof metadata?.langgraph_step === "number") {
-    attributes[langGraphStepAttribute] = metadata.langgraph_step;
-  }
-
-  return attributes;
-};
-
-const tokenMetricAttributes = (source: Attributes): Attributes => {
-  const attributes: Attributes = {};
-
-  if (typeof source[SemanticConventions.LLM_PROVIDER] === "string") {
-    attributes[SemanticConventions.LLM_PROVIDER] = source[SemanticConventions.LLM_PROVIDER];
-  }
-  if (typeof source[SemanticConventions.LLM_MODEL_NAME] === "string") {
-    attributes[SemanticConventions.LLM_MODEL_NAME] = source[SemanticConventions.LLM_MODEL_NAME];
-  }
-
-  return attributes;
-};
-
-const metricAttributes = (
-  kind: RunKind,
-  name: string | undefined,
-  metadata: Record<string, unknown> | undefined,
-  source: Attributes,
-): Attributes => {
-  const attributes = commonRunAttributes(kind, name, metadata);
-
-  if (typeof source[llmOperationAttribute] === "string") {
-    attributes[llmOperationAttribute] = source[llmOperationAttribute];
-  }
-
-  return attributes;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const firstNumber = (record: Record<string, unknown>, keys: string[]) => {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number") return value;
-  }
-
-  return undefined;
-};
-
-const lastString = (values: unknown[]) => {
-  for (const value of values.slice().reverse()) {
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-
-  return undefined;
-};
-
-const readToolName = (tool: unknown): string | undefined => {
-  if (!isRecord(tool)) return undefined;
-
-  if (typeof tool.name === "string" && tool.name.length > 0) return tool.name;
-  if (Array.isArray(tool.id)) return lastString(tool.id);
-
-  return undefined;
-};
-
-type LlmResultTelemetry = {
-  attributes: Attributes;
-  inputTokens?: number;
-  outputTokens?: number;
-};
-
-const readLlmResultTelemetry = (output: unknown): LlmResultTelemetry => {
-  if (!isRecord(output)) return { attributes: {} };
-
-  // Providers report usage in different shapes; collect the common LangChain variants.
-  const attributes: Attributes = {};
-  let inputTokens: number | undefined;
-  let outputTokens: number | undefined;
-  const finishReasons = new Set<string>();
-  const llmOutput = isRecord(output.llmOutput) ? output.llmOutput : undefined;
-  const tokenUsage =
-    llmOutput !== undefined && isRecord(llmOutput.tokenUsage) ? llmOutput.tokenUsage : undefined;
-
-  if (tokenUsage !== undefined) {
-    inputTokens = firstNumber(tokenUsage, ["inputTokens", "input_tokens", "promptTokens"]);
-    outputTokens = firstNumber(tokenUsage, ["outputTokens", "output_tokens", "completionTokens"]);
-  }
-
-  if (Array.isArray(output.generations)) {
-    for (const generationGroup of output.generations) {
-      if (!Array.isArray(generationGroup)) continue;
-
-      for (const generation of generationGroup) {
-        if (!isRecord(generation)) continue;
-        const generationInfo = isRecord(generation.generationInfo)
-          ? generation.generationInfo
-          : undefined;
-        const message = isRecord(generation.message) ? generation.message : undefined;
-        const responseMetadata =
-          message !== undefined && isRecord(message.response_metadata)
-            ? message.response_metadata
-            : undefined;
-        const usageMetadata =
-          message !== undefined && isRecord(message.usage_metadata)
-            ? message.usage_metadata
-            : undefined;
-        const finishReason = generationInfo?.finish_reason ?? responseMetadata?.finish_reason;
-
-        if (typeof finishReason === "string") finishReasons.add(finishReason);
-        if (attributes[SemanticConventions.LLM_MODEL_NAME] === undefined) {
-          const responseModel = responseMetadata?.model_name ?? responseMetadata?.model;
-          if (typeof responseModel === "string") {
-            attributes[SemanticConventions.LLM_MODEL_NAME] = responseModel;
-          }
-        }
-        if (usageMetadata !== undefined) {
-          inputTokens ??= firstNumber(usageMetadata, ["input_tokens", "inputTokens"]);
-          outputTokens ??= firstNumber(usageMetadata, ["output_tokens", "outputTokens"]);
-        }
-      }
-    }
-  }
-
-  if (inputTokens !== undefined)
-    attributes[SemanticConventions.LLM_TOKEN_COUNT_PROMPT] = inputTokens;
-  if (outputTokens !== undefined) {
-    attributes[SemanticConventions.LLM_TOKEN_COUNT_COMPLETION] = outputTokens;
-  }
-  if (finishReasons.size > 0) {
-    const reasons = [...finishReasons];
-    attributes[SemanticConventions.LLM_FINISH_REASON] = reasons.length === 1 ? reasons[0] : reasons;
-  }
-
-  const telemetry: LlmResultTelemetry = { attributes };
-  if (inputTokens !== undefined) telemetry.inputTokens = inputTokens;
-  if (outputTokens !== undefined) telemetry.outputTokens = outputTokens;
-
-  return telemetry;
-};
-
-const spanName = (kind: RunKind, name: string | undefined) =>
+const spanName = (kind: LangChainRunKind, name: string | undefined) =>
   `langchain.${kind}.${name ?? "anonymous"}`;
 
 const reportError = (onError: ((error: unknown) => void) | undefined, error: unknown) => {
@@ -267,11 +79,11 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this.awaitHandlers = true;
     this.tracer = trace.getTracer(options.instrumentationName, options.instrumentationVersion);
     const meter = metrics.getMeter(options.instrumentationName, options.instrumentationVersion);
-    this.runDuration = meter.createHistogram("langchain.run.duration", {
+    this.runDuration = meter.createHistogram(runDurationMetricName, {
       description: "Duration of LangChain and LangGraph runs",
       unit: "s",
     });
-    this.tokenUsage = meter.createHistogram("gen_ai.client.token.usage", {
+    this.tokenUsage = meter.createHistogram(tokenUsageMetricName, {
       description: "Number of input and output tokens used by a generative AI operation",
       unit: "{token}",
     });
@@ -286,12 +98,12 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     }
   }
 
-  private safelyReadLlmResultTelemetry(output: unknown): LlmResultTelemetry {
+  private safelyReadLlmEndMetadata(output: unknown): LangChainLlmEndMetadata {
     try {
-      return readLlmResultTelemetry(output);
+      return readLlmEndMetadata(output);
     } catch (error) {
       reportError(this.onError, error);
-      return { attributes: {} };
+      return { spanAttributes: {} };
     }
   }
 
@@ -353,7 +165,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
   }
 
   private startRun(
-    kind: RunKind,
+    kind: LangChainRunKind,
     name: string | undefined,
     runId: string,
     parentRunId?: string,
@@ -370,21 +182,19 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         this.activeRuns.set(runId, { context: parentContext });
         return;
       }
+      const runMetadata = readRunStartMetadata(kind, name, metadata, attributes);
 
       const span = this.tracer.startSpan(
         spanName(kind, name),
         {
-          attributes: {
-            ...runAttributes(kind, name, metadata),
-            ...attributes,
-          },
+          attributes: runMetadata.spanAttributes,
         },
         parentContext,
       );
 
       this.activeRuns.set(runId, {
         context: trace.setSpan(parentContext, span),
-        metricAttributes: metricAttributes(kind, name, metadata, attributes),
+        metricAttributes: runMetadata.metricAttributes,
         span,
         startedAt: performance.now(),
       });
@@ -435,15 +245,15 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
 
   private endLlmRun(output: unknown, runId: string) {
     const run = this.activeRuns.get(runId);
-    const telemetry = this.safelyReadLlmResultTelemetry(output);
+    const metadata = this.safelyReadLlmEndMetadata(output);
 
     if (run?.metricAttributes !== undefined) {
-      const tokenAttributes = tokenMetricAttributes({
+      const tokenAttributes = readLlmTokenMetricAttributes({
         ...run.metricAttributes,
-        ...telemetry.attributes,
+        ...metadata.spanAttributes,
       });
-      if (telemetry.inputTokens !== undefined) {
-        const inputTokens = telemetry.inputTokens;
+      if (metadata.inputTokens !== undefined) {
+        const inputTokens = metadata.inputTokens;
         this.safely(() =>
           this.tokenUsage.record(inputTokens, {
             ...tokenAttributes,
@@ -451,8 +261,8 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
           }),
         );
       }
-      if (telemetry.outputTokens !== undefined) {
-        const outputTokens = telemetry.outputTokens;
+      if (metadata.outputTokens !== undefined) {
+        const outputTokens = metadata.outputTokens;
         this.safely(() =>
           this.tokenUsage.record(outputTokens, {
             ...tokenAttributes,
@@ -462,7 +272,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       }
     }
 
-    this.endRun(runId, telemetry.attributes);
+    this.endRun(runId, metadata.spanAttributes);
   }
 
   handleChainStart(
