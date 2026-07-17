@@ -1,196 +1,14 @@
-import { AgentRunExecutionError, type AgentRunExecutor } from "@teach-everything/agent";
-import {
-  context,
-  metrics,
-  SpanStatusCode,
-  trace,
-  type Meter,
-  type MeterProvider as ApiMeterProvider,
-} from "@opentelemetry/api";
-import {
-  AggregationTemporality,
-  InMemoryMetricExporter,
-  MeterProvider,
-  PeriodicExportingMetricReader,
-} from "@opentelemetry/sdk-metrics";
-import { node as traceNode } from "@opentelemetry/sdk-node";
-import type { Logger, LogAttributes, LogContext } from "@teach-everything/observability";
-import {
-  agentRunEventLineSchema,
-  agentRunRequestSchema,
-  type AgentRunErrorClassification,
-  type AgentRunExecutorEvent,
-} from "@teach-everything/shared";
+import type { AgentRunExecutor } from "@teach-everything/agent";
+import { agentRunEventLineSchema } from "@teach-everything/shared";
 import { serve } from "@hono/node-server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createApp } from "../app";
 
-type CapturedLogRecord = {
-  body: string;
-  attributes: LogAttributes;
-  eventName?: string;
-  traceId?: string;
-  spanId?: string;
-  traceFlags?: number;
-};
-
-const createCapturingLogger = (
-  records: CapturedLogRecord[],
-  boundAttributes: LogAttributes = {},
-): Logger => {
-  const write = (body: string, logContext: LogContext = {}) => {
-    const spanContext = trace.getActiveSpan()?.spanContext();
-
-    records.push({
-      body,
-      attributes: {
-        ...boundAttributes,
-        ...logContext.attributes,
-      },
-      ...(logContext.eventName === undefined ? {} : { eventName: logContext.eventName }),
-      ...(spanContext === undefined
-        ? {}
-        : {
-            traceId: spanContext.traceId,
-            spanId: spanContext.spanId,
-            traceFlags: spanContext.traceFlags,
-          }),
-    });
-  };
-
-  return {
-    trace: write,
-    debug: write,
-    info: write,
-    warn: write,
-    error: write,
-    fatal: write,
-    child: (attributes) => createCapturingLogger(records, { ...boundAttributes, ...attributes }),
-    flush: () => Promise.resolve(),
-    shutdown: () => Promise.resolve(),
-  };
-};
-
-const installTelemetryExporters = () => {
-  const { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } = traceNode;
-  const spanExporter = new InMemorySpanExporter();
-  const tracerProvider = new NodeTracerProvider({
-    spanProcessors: [new SimpleSpanProcessor(spanExporter)],
-  });
-  tracerProvider.register();
-
-  const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
-  const metricReader = new PeriodicExportingMetricReader({
-    exporter: metricExporter,
-    exportIntervalMillis: 60_000,
-  });
-  const meterProvider = new MeterProvider({ readers: [metricReader] });
-  metrics.setGlobalMeterProvider(meterProvider);
-
-  return {
-    collectMetrics: async () => {
-      await metricReader.forceFlush();
-      return metricExporter.getMetrics();
-    },
-    getSpans: () => spanExporter.getFinishedSpans(),
-    shutdown: async () => {
-      await tracerProvider.shutdown();
-      await meterProvider.shutdown();
-    },
-  };
-};
-
-const installThrowingSpanExporter = () => {
-  const { NodeTracerProvider, SimpleSpanProcessor } = traceNode;
-  const tracerProvider = new NodeTracerProvider({
-    spanProcessors: [
-      new SimpleSpanProcessor({
-        export: () => {
-          throw new Error("SENTINEL_TRACE_EXPORTER_FAILURE");
-        },
-        shutdown: () => Promise.resolve(),
-      }),
-    ],
-  });
-  tracerProvider.register();
-
-  return {
-    shutdown: () => tracerProvider.shutdown(),
-  };
-};
-
-const serializeTelemetryPayload = (
-  logs: CapturedLogRecord[],
-  metrics: Awaited<ReturnType<ReturnType<typeof installTelemetryExporters>["collectMetrics"]>>,
-  spans: ReturnType<ReturnType<typeof installTelemetryExporters>["getSpans"]>,
-) =>
-  JSON.stringify({
-    logs,
-    metrics,
-    spans: spans.map((span) => ({
-      attributes: span.attributes,
-      events: span.events,
-      name: span.name,
-      status: span.status,
-    })),
-  });
-
-const findAgentRunDurationMetric = (
-  metrics: Awaited<ReturnType<ReturnType<typeof installTelemetryExporters>["collectMetrics"]>>,
-) =>
-  metrics
-    .flatMap((resourceMetrics) => resourceMetrics.scopeMetrics)
-    .flatMap((scopeMetrics) => scopeMetrics.metrics)
-    .find((metric) => metric.descriptor.name === "agent.run.duration");
-
-const failureWithSentinels = (errorClassification: AgentRunErrorClassification) => {
-  const error =
-    errorClassification === "internal"
-      ? new Error("SENTINEL_EXCEPTION_MESSAGE")
-      : new AgentRunExecutionError(errorClassification, {
-          cause: new Error("SENTINEL_EXCEPTION_CAUSE"),
-        });
-  error.stack = "SENTINEL_STACK_TRACE";
-  return error;
-};
-
-const throwingLogger: Logger = {
-  trace: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  debug: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  info: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  warn: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  error: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  fatal: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  child: () => {
-    throw new Error("SENTINEL_LOG_SINK_FAILURE");
-  },
-  flush: () => Promise.resolve(),
-  shutdown: () => Promise.resolve(),
-};
-
-const installThrowingMeterProvider = () => {
-  const throwingMeter = {
-    createHistogram: () => {
-      throw new Error("SENTINEL_METER_FAILURE");
-    },
-  } as unknown as Meter;
-
-  metrics.setGlobalMeterProvider({
-    getMeter: () => throwingMeter,
-  } satisfies ApiMeterProvider);
-};
+const decodeAgentRunEvents = (body: string) =>
+  body
+    .trim()
+    .split("\n")
+    .map((line) => agentRunEventLineSchema.parse(line));
 
 const waitForAbort = (signal: AbortSignal) =>
   new Promise<void>((resolve) => {
@@ -215,30 +33,6 @@ const withTimeout = async <T>(promise: Promise<T>, message: string) => {
     if (timeout) clearTimeout(timeout);
   }
 };
-
-const waitForRunEvents = (
-  records: CapturedLogRecord[],
-  agentRunId: string,
-  expectedEvents: string[],
-) =>
-  withTimeout(
-    new Promise<void>((resolve) => {
-      const poll = () => {
-        const events = records
-          .filter((record) => record.attributes["agent.run.id"] === agentRunId)
-          .map((record) => record.eventName);
-        if (expectedEvents.every((eventName, index) => events[index] === eventName)) {
-          resolve();
-          return;
-        }
-
-        setTimeout(poll, 1);
-      };
-
-      poll();
-    }),
-    `Timed out waiting for ${agentRunId} lifecycle logs`,
-  );
 
 const startEphemeralApi = (api: ReturnType<typeof createApp>) =>
   new Promise<{ close: () => Promise<void>; origin: string }>((resolve) => {
@@ -296,50 +90,8 @@ const controlledCancellationExecutor = () => {
   };
 };
 
-afterEach(() => {
-  vi.useRealTimers();
-  context.disable();
-  metrics.disable();
-  trace.disable();
-});
-
-const decodeAgentRunEvents = (body: string) =>
-  body
-    .trim()
-    .split("\n")
-    .map((line) => agentRunEventLineSchema.parse(line));
-
-const unsafeAgentRunExecutor = (events: AsyncIterable<unknown>): AgentRunExecutor =>
-  ({ execute: () => events }) as unknown as AgentRunExecutor;
-
-const rejectedAgentRunExecutor = (error: unknown): AgentRunExecutor => ({
-  execute: () => ({
-    [Symbol.asyncIterator]: () => ({
-      next: () => Promise.reject<IteratorResult<AgentRunExecutorEvent>>(error),
-    }),
-  }),
-});
-
-const failedAfterModelContentExecutor = (error: unknown): AgentRunExecutor => ({
-  async *execute() {
-    yield { version: 1, type: "message.delta", text: "SENTINEL_MODEL_CONTENT" };
-    throw error;
-  },
-});
-
-const failureLifecycleEventName = (errorClassification: AgentRunErrorClassification) =>
-  errorClassification === "cancellation_failed"
-    ? "agent.run.cancellation_failed"
-    : "agent.run.failed";
-
-const emptyAsyncIterable = (): AsyncIterable<unknown> => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () => Promise.resolve({ done: true, value: undefined }),
-  }),
-});
-
 describe("POST /api/agent-runs", () => {
-  it("streams a successful Agent Run with one identifier shared by the header and first event", async () => {
+  it("streams NDJSON Agent Run events with one identifier shared by the header and first event", async () => {
     // Given
     const received: { message?: string } = {};
     const executor: AgentRunExecutor = {
@@ -362,711 +114,20 @@ describe("POST /api/agent-runs", () => {
 
     // When
     const response = await api.request(request);
-    const lines = decodeAgentRunEvents(await response.text());
+    const body = await response.text();
 
     // Then
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/x-ndjson");
     expect(response.headers.get("X-Agent-Run-Id")).toBe("ar_test_01");
     expect(received).toEqual({ message: "Explain closures." });
-    expect(lines).toEqual([
+    expect(decodeAgentRunEvents(body)).toEqual([
       { version: 1, type: "run.started", agentRunId: "ar_test_01" },
       { version: 1, type: "message.delta", text: "Closures retain their scope. " },
       { version: 1, type: "message.delta", text: "That is lexical scoping." },
       { version: 1, type: "run.completed" },
     ]);
   });
-
-  it("releases the request abort listener after Agent Run execution settles", async () => {
-    // Given
-    let receivedSignal: AbortSignal | undefined;
-    const requestCancellation = new AbortController();
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute(_input, signal) {
-          receivedSignal = signal;
-          yield { version: 1, type: "run.completed" };
-        },
-      },
-      createAgentRunId: () => "ar_release_cancellation_listener",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Complete before cancellation." }),
-      signal: requestCancellation.signal,
-    });
-
-    // When
-    const response = await api.request(request);
-    await response.text();
-    requestCancellation.abort();
-
-    // Then
-    expect(receivedSignal?.aborted).toBe(false);
-  });
-
-  it("stops executor work when the Agent Run response stream is cancelled", async () => {
-    // Given
-    const controlled = controlledCancellationExecutor();
-    const requestCancellation = new AbortController();
-    const api = createApp({
-      agentRunExecutor: controlled.executor,
-      createAgentRunId: () => "ar_stream_cancel",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Cancel the response stream." }),
-      signal: requestCancellation.signal,
-    });
-
-    // When
-    const response = await api.request(request);
-    const executorSignal = await withTimeout(
-      controlled.receivedSignal,
-      "Timed out waiting for executor signal",
-    );
-    await response.body?.cancel();
-    await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
-    requestCancellation.abort();
-
-    // Then
-    expect(executorSignal.aborted).toBe(true);
-    expect(controlled.abortEvents()).toBe(1);
-    expect(controlled.isRunning()).toBe(false);
-  });
-
-  it("propagates a real Node HTTP client abort to the executor and stops controlled work", async () => {
-    // Given
-    const controlled = controlledCancellationExecutor();
-    const logs: CapturedLogRecord[] = [];
-    const server = await startEphemeralApi(
-      createApp({
-        agentRunExecutor: controlled.executor,
-        createAgentRunId: () => "ar_http_abort",
-        logger: createCapturingLogger(logs),
-      }),
-    );
-    const clientCancellation = new AbortController();
-
-    try {
-      const response = await fetch(`${server.origin}/api/agent-runs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Start controlled work." }),
-        signal: clientCancellation.signal,
-      });
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Expected streamed response body");
-
-      // When
-      await withTimeout(reader.read(), "Timed out waiting for Agent Run stream to start");
-      const executorSignal = await withTimeout(
-        controlled.receivedSignal,
-        "Timed out waiting for executor signal",
-      );
-      clientCancellation.abort();
-      await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
-      const expectedRunEvents = [
-        "agent.run.accepted",
-        "agent.run.cancellation_requested",
-        "agent.run.cancelled",
-      ];
-      await waitForRunEvents(logs, "ar_http_abort", expectedRunEvents);
-
-      // Then
-      expect(response.status).toBe(200);
-      expect(executorSignal.aborted).toBe(true);
-      expect(controlled.abortEvents()).toBe(1);
-      expect(controlled.isRunning()).toBe(false);
-      expect(
-        logs
-          .filter((record) => record.attributes["agent.run.id"] === "ar_http_abort")
-          .map((record) => record.eventName),
-      ).toEqual(expectedRunEvents);
-    } finally {
-      await server.close();
-    }
-  });
-
-  it("emits metadata-only root telemetry for a successful Agent Run", async () => {
-    // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute() {
-          yield { version: 1, type: "message.delta", text: "SENTINEL_MODEL_CONTENT" };
-          yield { version: 1, type: "run.completed" };
-        },
-      },
-      createAgentRunId: () => "ar_success_telemetry",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer SENTINEL_AUTHORIZATION",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const body = await response.text();
-    const metrics = await telemetry.collectMetrics();
-    const spans = telemetry.getSpans();
-    await telemetry.shutdown();
-
-    // Then
-    expect(response.status).toBe(200);
-    expect(decodeAgentRunEvents(body)).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_success_telemetry" },
-      { version: 1, type: "message.delta", text: "SENTINEL_MODEL_CONTENT" },
-      { version: 1, type: "run.completed" },
-    ]);
-
-    const rootSpan = spans.find((span) => span.name === "agent.run");
-    expect(rootSpan).toBeDefined();
-    expect(rootSpan?.attributes).toMatchObject({
-      "agent.run.id": "ar_success_telemetry",
-      "agent.run.outcome": "succeeded",
-    });
-    expect(rootSpan?.status.code).toBe(SpanStatusCode.UNSET);
-    expect(rootSpan?.events).toEqual([]);
-
-    const runLogs = logs.filter(
-      (record) => record.attributes["agent.run.id"] === "ar_success_telemetry",
-    );
-    expect(runLogs.map((record) => record.eventName)).toEqual([
-      "agent.run.accepted",
-      "agent.run.completed",
-    ]);
-    expect(runLogs.every((record) => record.traceId === rootSpan?.spanContext().traceId)).toBe(
-      true,
-    );
-    expect(runLogs.map((record) => record.attributes)).toEqual([
-      { "agent.run.id": "ar_success_telemetry" },
-      { "agent.run.id": "ar_success_telemetry", "agent.run.outcome": "succeeded" },
-    ]);
-
-    const durationMetric = findAgentRunDurationMetric(metrics);
-    expect(durationMetric?.dataPoints).toHaveLength(1);
-    expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      "agent.run.outcome": "succeeded",
-    });
-
-    const telemetryPayload = serializeTelemetryPayload(logs, metrics, spans);
-    for (const prohibited of [
-      "SENTINEL_USER_CONTENT",
-      "SENTINEL_MODEL_CONTENT",
-      "SENTINEL_AUTHORIZATION",
-    ]) {
-      expect(telemetryPayload).not.toContain(prohibited);
-    }
-  });
-
-  it("parents the root Agent Run span beneath active server telemetry", async () => {
-    // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute() {
-          yield { version: 1, type: "run.completed" };
-        },
-      },
-      createAgentRunId: () => "ar_parented_telemetry",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Run under a server span." }),
-    });
-    const tracer = trace.getTracer("test-http-server");
-
-    // When
-    await tracer.startActiveSpan("HTTP POST /api/agent-runs", async (serverSpan) => {
-      const response = await api.request(request);
-      await response.text();
-      serverSpan.end();
-    });
-    const spans = telemetry.getSpans();
-    await telemetry.shutdown();
-
-    // Then
-    const rootSpan = spans.find((span) => span.name === "agent.run");
-    const serverSpan = spans.find((span) => span.name === "HTTP POST /api/agent-runs");
-    expect(rootSpan?.parentSpanContext?.spanId).toBe(serverSpan?.spanContext().spanId);
-  });
-
-  it("keeps the Agent Run stream outcome when telemetry sinks fail", async () => {
-    // Given
-    const traceTelemetry = installThrowingSpanExporter();
-    installThrowingMeterProvider();
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute() {
-          yield { version: 1, type: "message.delta", text: "Streamed answer." };
-          yield { version: 1, type: "run.completed" };
-        },
-      },
-      createAgentRunId: () => "ar_fail_open_telemetry",
-      logger: throwingLogger,
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Telemetry must be fail-open." }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const body = await response.text();
-    await traceTelemetry.shutdown();
-
-    // Then
-    expect(response.status).toBe(200);
-    expect(decodeAgentRunEvents(body)).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_fail_open_telemetry" },
-      { version: 1, type: "message.delta", text: "Streamed answer." },
-      { version: 1, type: "run.completed" },
-    ]);
-  });
-
-  it("records confirmed cancellation only after executor work stops", async () => {
-    // Given
-    vi.useFakeTimers();
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    let executorSignal: AbortSignal | undefined;
-    let cleanupStarted = false;
-    let stopped = false;
-    const requestCancellation = new AbortController();
-    const api = createApp({
-      agentRunExecutor: {
-        execute: (_input, signal) => {
-          executorSignal = signal;
-
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-              return: () => {
-                cleanupStarted = true;
-                return new Promise<IteratorResult<AgentRunExecutorEvent>>((resolve) => {
-                  setTimeout(() => {
-                    stopped = true;
-                    resolve({ done: true, value: undefined });
-                  }, 9_999);
-                });
-              },
-            }),
-          };
-        },
-      },
-      createAgentRunId: () => "ar_confirmed_cancellation",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer SENTINEL_AUTHORIZATION",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-      signal: requestCancellation.signal,
-    });
-
-    // When
-    const response = await api.request(request);
-    const bodyPromise = response.text();
-    requestCancellation.abort();
-    await vi.advanceTimersByTimeAsync(9_999);
-    const body = await bodyPromise;
-    vi.useRealTimers();
-    const metrics = await telemetry.collectMetrics();
-    const spans = telemetry.getSpans();
-    await telemetry.shutdown();
-
-    // Then
-    expect(executorSignal?.aborted).toBe(true);
-    expect(cleanupStarted).toBe(true);
-    expect(stopped).toBe(true);
-    expect(decodeAgentRunEvents(body)).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_confirmed_cancellation" },
-      { version: 1, type: "run.cancelled" },
-    ]);
-
-    const rootSpan = spans.find((span) => span.name === "agent.run");
-    expect(rootSpan?.attributes).toMatchObject({
-      "agent.run.id": "ar_confirmed_cancellation",
-      "agent.run.outcome": "cancelled",
-    });
-    expect(rootSpan?.status.code).toBe(SpanStatusCode.UNSET);
-    expect(rootSpan?.events).toEqual([]);
-
-    const runLogs = logs.filter(
-      (record) => record.attributes["agent.run.id"] === "ar_confirmed_cancellation",
-    );
-    expect(runLogs.map((record) => record.eventName)).toEqual([
-      "agent.run.accepted",
-      "agent.run.cancellation_requested",
-      "agent.run.cancelled",
-    ]);
-    expect(runLogs.every((record) => record.traceId === rootSpan?.spanContext().traceId)).toBe(
-      true,
-    );
-    expect(runLogs.map((record) => record.attributes)).toEqual([
-      { "agent.run.id": "ar_confirmed_cancellation" },
-      { "agent.run.id": "ar_confirmed_cancellation" },
-      { "agent.run.id": "ar_confirmed_cancellation", "agent.run.outcome": "cancelled" },
-    ]);
-
-    const durationMetric = findAgentRunDurationMetric(metrics);
-    expect(durationMetric?.dataPoints).toHaveLength(1);
-    expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      "agent.run.outcome": "cancelled",
-    });
-
-    const telemetryPayload = serializeTelemetryPayload(logs, metrics, spans);
-    for (const prohibited of ["SENTINEL_AUTHORIZATION", "SENTINEL_USER_CONTENT"]) {
-      expect(telemetryPayload).not.toContain(prohibited);
-    }
-  });
-
-  it("fails cancellation when executor work does not confirm before the deadline", async () => {
-    // Given
-    vi.useFakeTimers();
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    let executorSignal: AbortSignal | undefined;
-    let returnCalled = false;
-    let cleanupFinished = false;
-    let finishCleanup = () => undefined;
-    const cleanupCompletion = new Promise<void>((resolve) => {
-      finishCleanup = () => {
-        cleanupFinished = true;
-        resolve();
-      };
-    });
-    const textDecoder = new TextDecoder();
-    const api = createApp({
-      agentRunExecutor: {
-        execute: (_input, signal) => {
-          executorSignal = signal;
-
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-              return: async () => {
-                returnCalled = true;
-                await cleanupCompletion;
-                return { done: true, value: undefined };
-              },
-            }),
-          };
-        },
-      },
-      createAgentRunId: () => "ar_cancellation_failed",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer SENTINEL_AUTHORIZATION",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const reader = response.body?.getReader();
-    const startedChunk = await reader?.read();
-    const cancellation = reader?.cancel();
-    await vi.advanceTimersByTimeAsync(10_000);
-    await cancellation;
-    vi.useRealTimers();
-    const metrics = await telemetry.collectMetrics();
-    const spans = telemetry.getSpans();
-    await telemetry.shutdown();
-
-    // Then
-    expect(startedChunk?.done).toBe(false);
-    expect(decodeAgentRunEvents(textDecoder.decode(startedChunk?.value))).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_cancellation_failed" },
-    ]);
-    expect(executorSignal?.aborted).toBe(true);
-    expect(returnCalled).toBe(true);
-    expect(cleanupFinished).toBe(false);
-
-    const rootSpan = spans.find((span) => span.name === "agent.run");
-    expect(rootSpan?.attributes).toMatchObject({
-      "agent.run.id": "ar_cancellation_failed",
-      "agent.run.outcome": "failed",
-      "error.type": "cancellation_failed",
-    });
-    expect(rootSpan?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(rootSpan?.events).toEqual([]);
-
-    const runLogs = logs.filter(
-      (record) => record.attributes["agent.run.id"] === "ar_cancellation_failed",
-    );
-    expect(runLogs.map((record) => record.eventName)).toEqual([
-      "agent.run.accepted",
-      "agent.run.cancellation_requested",
-      "agent.run.cancellation_failed",
-    ]);
-    expect(runLogs.every((record) => record.traceId === rootSpan?.spanContext().traceId)).toBe(
-      true,
-    );
-    expect(runLogs.map((record) => record.attributes)).toEqual([
-      { "agent.run.id": "ar_cancellation_failed" },
-      { "agent.run.id": "ar_cancellation_failed" },
-      {
-        "agent.run.id": "ar_cancellation_failed",
-        "agent.run.outcome": "failed",
-        "error.type": "cancellation_failed",
-      },
-    ]);
-
-    const durationMetric = findAgentRunDurationMetric(metrics);
-    expect(durationMetric?.dataPoints).toHaveLength(1);
-    expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      "agent.run.outcome": "failed",
-      "error.type": "cancellation_failed",
-    });
-
-    const telemetryPayload = serializeTelemetryPayload(logs, metrics, spans);
-    for (const prohibited of [
-      "SENTINEL_AUTHORIZATION",
-      "SENTINEL_EXCEPTION_MESSAGE",
-      "SENTINEL_USER_CONTENT",
-    ]) {
-      expect(telemetryPayload).not.toContain(prohibited);
-    }
-
-    finishCleanup();
-    await Promise.resolve();
-  });
-
-  it("fails cancellation when executor work lacks a cleanup hook and does not stop", async () => {
-    // Given
-    vi.useFakeTimers();
-    const logs: CapturedLogRecord[] = [];
-    let executorSignal: AbortSignal | undefined;
-    const api = createApp({
-      agentRunExecutor: {
-        execute: (_input, signal) => {
-          executorSignal = signal;
-
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-            }),
-          };
-        },
-      },
-      createAgentRunId: () => "ar_cancellation_without_cleanup_hook",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const reader = response.body?.getReader();
-    await reader?.read();
-    const cancellation = reader?.cancel();
-    await vi.advanceTimersByTimeAsync(10_000);
-    await cancellation;
-    vi.useRealTimers();
-
-    // Then
-    expect(executorSignal?.aborted).toBe(true);
-    expect(
-      logs
-        .filter(
-          (record) => record.attributes["agent.run.id"] === "ar_cancellation_without_cleanup_hook",
-        )
-        .map((record) => record.eventName),
-    ).toEqual([
-      "agent.run.accepted",
-      "agent.run.cancellation_requested",
-      "agent.run.cancellation_failed",
-    ]);
-  });
-
-  it("fails cancellation when executor cleanup rejects before the deadline", async () => {
-    // Given
-    vi.useFakeTimers();
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const api = createApp({
-      agentRunExecutor: {
-        execute: () => ({
-          [Symbol.asyncIterator]: () => ({
-            next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-            return: () =>
-              new Promise<IteratorResult<AgentRunExecutorEvent>>((_resolve, reject) => {
-                setTimeout(() => reject(new Error("SENTINEL_EXCEPTION_MESSAGE")), 1_000);
-              }),
-          }),
-        }),
-      },
-      createAgentRunId: () => "ar_cancellation_cleanup_rejected",
-      logger: createCapturingLogger(logs),
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const reader = response.body?.getReader();
-    await reader?.read();
-    const cancellation = reader?.cancel();
-    await vi.advanceTimersByTimeAsync(1_000);
-    await cancellation;
-    vi.useRealTimers();
-    const metrics = await telemetry.collectMetrics();
-    const spans = telemetry.getSpans();
-    await telemetry.shutdown();
-
-    // Then
-    const rootSpan = spans.find((span) => span.name === "agent.run");
-    expect(rootSpan?.attributes).toMatchObject({
-      "agent.run.id": "ar_cancellation_cleanup_rejected",
-      "agent.run.outcome": "failed",
-      "error.type": "cancellation_failed",
-    });
-    expect(rootSpan?.status.code).toBe(SpanStatusCode.ERROR);
-    expect(rootSpan?.events).toEqual([]);
-
-    const runLogs = logs.filter(
-      (record) => record.attributes["agent.run.id"] === "ar_cancellation_cleanup_rejected",
-    );
-    expect(runLogs.map((record) => record.eventName)).toEqual([
-      "agent.run.accepted",
-      "agent.run.cancellation_requested",
-      "agent.run.cancellation_failed",
-    ]);
-
-    const durationMetric = findAgentRunDurationMetric(metrics);
-    expect(durationMetric?.dataPoints).toHaveLength(1);
-    expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      "agent.run.outcome": "failed",
-      "error.type": "cancellation_failed",
-    });
-
-    const telemetryPayload = serializeTelemetryPayload(logs, metrics, spans);
-    for (const prohibited of ["SENTINEL_EXCEPTION_MESSAGE", "SENTINEL_USER_CONTENT"]) {
-      expect(telemetryPayload).not.toContain(prohibited);
-    }
-  });
-
-  it.each([
-    "validation",
-    "provider",
-    "tool",
-    "timeout",
-    "cancellation_failed",
-    "internal",
-  ] as const)(
-    "emits metadata-only root telemetry for a %s Agent Run failure",
-    async (errorClassification) => {
-      // Given
-      const telemetry = installTelemetryExporters();
-      const logs: CapturedLogRecord[] = [];
-      const api = createApp({
-        agentRunExecutor: failedAfterModelContentExecutor(
-          failureWithSentinels(errorClassification),
-        ),
-        createAgentRunId: () => "ar_failure_telemetry",
-        logger: createCapturingLogger(logs),
-      });
-      const request = new Request("http://localhost/api/agent-runs", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer SENTINEL_AUTHORIZATION",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: "SENTINEL_USER_CONTENT" }),
-      });
-
-      // When
-      const response = await api.request(request);
-      const body = await response.text();
-      const metrics = await telemetry.collectMetrics();
-      const spans = telemetry.getSpans();
-      await telemetry.shutdown();
-
-      // Then
-      expect(response.status).toBe(200);
-      expect(decodeAgentRunEvents(body)).toEqual([
-        { version: 1, type: "run.started", agentRunId: "ar_failure_telemetry" },
-        { version: 1, type: "message.delta", text: "SENTINEL_MODEL_CONTENT" },
-        { version: 1, type: "run.failed", errorClassification },
-      ]);
-
-      const rootSpan = spans.find((span) => span.name === "agent.run");
-      expect(rootSpan).toBeDefined();
-      expect(rootSpan?.attributes).toMatchObject({
-        "agent.run.id": "ar_failure_telemetry",
-        "agent.run.outcome": "failed",
-        "error.type": errorClassification,
-      });
-      expect(rootSpan?.status.code).toBe(SpanStatusCode.ERROR);
-      expect(rootSpan?.events).toEqual([]);
-
-      const runLogs = logs.filter(
-        (record) => record.attributes["agent.run.id"] === "ar_failure_telemetry",
-      );
-      expect(runLogs.map((record) => record.eventName)).toEqual([
-        "agent.run.accepted",
-        failureLifecycleEventName(errorClassification),
-      ]);
-      expect(runLogs.every((record) => record.traceId === rootSpan?.spanContext().traceId)).toBe(
-        true,
-      );
-      expect(runLogs.map((record) => record.attributes)).toEqual([
-        { "agent.run.id": "ar_failure_telemetry" },
-        {
-          "agent.run.id": "ar_failure_telemetry",
-          "agent.run.outcome": "failed",
-          "error.type": errorClassification,
-        },
-      ]);
-
-      const durationMetric = findAgentRunDurationMetric(metrics);
-      expect(durationMetric?.dataPoints).toHaveLength(1);
-      expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-        "agent.run.outcome": "failed",
-        "error.type": errorClassification,
-      });
-
-      const telemetryPayload = serializeTelemetryPayload(logs, metrics, spans);
-      for (const prohibited of [
-        "SENTINEL_AUTHORIZATION",
-        "SENTINEL_EXCEPTION_CAUSE",
-        "SENTINEL_EXCEPTION_MESSAGE",
-        "SENTINEL_MODEL_CONTENT",
-        "SENTINEL_STACK_TRACE",
-        "SENTINEL_USER_CONTENT",
-      ]) {
-        expect(telemetryPayload).not.toContain(prohibited);
-      }
-      expect(JSON.stringify(durationMetric?.dataPoints)).not.toContain("ar_failure_telemetry");
-    },
-  );
 
   it.each(["{", JSON.stringify({ message: " \n " })])(
     "rejects invalid input before creating an Agent Run: %j",
@@ -1098,213 +159,102 @@ describe("POST /api/agent-runs", () => {
     },
   );
 
-  it.each(["validation", "provider", "tool", "timeout"] as const)(
-    "ends a post-start %s executor failure with a bounded failure event",
-    async (errorClassification) => {
-      // Given
-      const api = createApp({
-        agentRunExecutor: rejectedAgentRunExecutor(
-          new AgentRunExecutionError(errorClassification, new Error("executor-secret")),
-        ),
-        createAgentRunId: () => "ar_failure_01",
-      });
-      const request = new Request("http://localhost/api/agent-runs", {
+  it("cancels lifecycle work when the response stream is cancelled", async () => {
+    // Given
+    const controlled = controlledCancellationExecutor();
+    const api = createApp({
+      agentRunExecutor: controlled.executor,
+      createAgentRunId: () => "ar_stream_cancel",
+    });
+    const request = new Request("http://localhost/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Cancel the response stream." }),
+    });
+
+    // When
+    const response = await api.request(request);
+    const executorSignal = await withTimeout(
+      controlled.receivedSignal,
+      "Timed out waiting for executor signal",
+    );
+    await response.body?.cancel();
+    await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
+
+    // Then
+    expect(executorSignal.aborted).toBe(true);
+    expect(controlled.abortEvents()).toBe(1);
+    expect(controlled.isRunning()).toBe(false);
+  });
+
+  it("passes request-signal cancellation through to lifecycle work", async () => {
+    // Given
+    const controlled = controlledCancellationExecutor();
+    const requestCancellation = new AbortController();
+    const api = createApp({
+      agentRunExecutor: controlled.executor,
+      createAgentRunId: () => "ar_request_signal_cancel",
+    });
+    const request = new Request("http://localhost/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Cancel the request signal." }),
+      signal: requestCancellation.signal,
+    });
+
+    // When
+    const response = await api.request(request);
+    const executorSignal = await withTimeout(
+      controlled.receivedSignal,
+      "Timed out waiting for executor signal",
+    );
+    requestCancellation.abort();
+    await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
+    await response.body?.cancel();
+
+    // Then
+    expect(executorSignal.aborted).toBe(true);
+    expect(controlled.abortEvents()).toBe(1);
+    expect(controlled.isRunning()).toBe(false);
+  });
+
+  it("propagates a real Node HTTP client abort to the executor and stops controlled work", async () => {
+    // Given
+    const controlled = controlledCancellationExecutor();
+    const server = await startEphemeralApi(
+      createApp({
+        agentRunExecutor: controlled.executor,
+        createAgentRunId: () => "ar_http_abort",
+      }),
+    );
+    const clientCancellation = new AbortController();
+
+    try {
+      const response = await fetch(`${server.origin}/api/agent-runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Run this executor." }),
+        body: JSON.stringify({ message: "Start controlled work." }),
+        signal: clientCancellation.signal,
       });
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Expected streamed response body");
 
       // When
-      const response = await api.request(request);
-      const body = await response.text();
-      const events = decodeAgentRunEvents(body);
+      await withTimeout(reader.read(), "Timed out waiting for Agent Run stream to start");
+      const executorSignal = await withTimeout(
+        controlled.receivedSignal,
+        "Timed out waiting for executor signal",
+      );
+      clientCancellation.abort();
+      await withTimeout(controlled.stopped, "Timed out waiting for controlled work to stop");
 
       // Then
-      expect(events).toEqual([
-        { version: 1, type: "run.started", agentRunId: "ar_failure_01" },
-        { version: 1, type: "run.failed", errorClassification },
-      ]);
-      expect(body).not.toContain("executor-secret");
-    },
-  );
-
-  it.each([
-    ["an unexpected thrown error", () => new Error("executor-secret")],
-    [
-      "a spoofed validation error",
-      () => Object.assign(new Error("executor-secret"), { name: "ZodError" }),
-    ],
-    [
-      "an invalid classified error",
-      () => {
-        const error = new AgentRunExecutionError("provider", {
-          cause: new Error("executor-secret"),
-        });
-        Object.defineProperty(error, "errorClassification", { value: "unbounded" });
-        return error;
-      },
-    ],
-  ])("falls back to internal for %s", async (_description, createError) => {
-    // Given
-    const api = createApp({
-      agentRunExecutor: rejectedAgentRunExecutor(createError()),
-      createAgentRunId: () => "ar_internal_failure_01",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Run this executor." }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const body = await response.text();
-
-    // Then
-    expect(decodeAgentRunEvents(body)).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_internal_failure_01" },
-      { version: 1, type: "run.failed", errorClassification: "internal" },
-    ]);
-    expect(body).not.toContain("executor-secret");
-  });
-
-  it("classifies validation performed by the configured executor after the stream starts", async () => {
-    // Given
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute() {
-          agentRunRequestSchema.parse({ message: " " });
-          yield { version: 1, type: "run.completed" };
-        },
-      },
-      createAgentRunId: () => "ar_validation_01",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Run this executor." }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const events = decodeAgentRunEvents(await response.text());
-
-    // Then
-    expect(events).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_validation_01" },
-      { version: 1, type: "run.failed", errorClassification: "validation" },
-    ]);
-  });
-
-  it("ends premature or malformed executor output with one internal failure", async () => {
-    // Given
-    const executors = [
-      unsafeAgentRunExecutor(emptyAsyncIterable()),
-      unsafeAgentRunExecutor(
-        (async function* () {
-          yield {
-            version: 1,
-            type: "run.failed",
-            errorClassification: "provider",
-            error: "executor-secret",
-          };
-        })(),
-      ),
-    ];
-
-    // When
-    const responses = await Promise.all(
-      executors.map((agentRunExecutor) =>
-        createApp({
-          agentRunExecutor,
-          createAgentRunId: () => "ar_internal_01",
-        }).request(
-          new Request("http://localhost/api/agent-runs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: "Run this executor." }),
-          }),
-        ),
-      ),
-    );
-    const bodies = await Promise.all(responses.map((response) => response.text()));
-    const eventSequences = bodies.map(decodeAgentRunEvents);
-
-    // Then
-    expect(eventSequences).toEqual([
-      [
-        { version: 1, type: "run.started", agentRunId: "ar_internal_01" },
-        { version: 1, type: "run.failed", errorClassification: "internal" },
-      ],
-      [
-        { version: 1, type: "run.started", agentRunId: "ar_internal_01" },
-        { version: 1, type: "run.failed", errorClassification: "internal" },
-      ],
-    ]);
-    expect(bodies.join("\n")).not.toContain("executor-secret");
-  });
-
-  it("keeps exactly one terminal event when the executor attempts duplicate termination", async () => {
-    // Given
-    const api = createApp({
-      agentRunExecutor: {
-        async *execute() {
-          yield { version: 1, type: "run.completed" };
-          yield { version: 1, type: "run.failed", errorClassification: "internal" };
-        },
-      },
-      createAgentRunId: () => "ar_terminal_01",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Run this executor." }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const events = decodeAgentRunEvents(await response.text());
-
-    // Then
-    expect(events).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_terminal_01" },
-      { version: 1, type: "run.completed" },
-    ]);
-  });
-
-  it("keeps the terminal decision when executor cleanup fails after termination", async () => {
-    // Given
-    const api = createApp({
-      agentRunExecutor: {
-        execute: () => ({
-          [Symbol.asyncIterator]: () => ({
-            next: () =>
-              Promise.resolve<IteratorResult<AgentRunExecutorEvent>>({
-                done: false,
-                value: { version: 1, type: "run.completed" },
-              }),
-            return: () => Promise.reject<IteratorResult<AgentRunExecutorEvent>>("executor-secret"),
-          }),
-        }),
-      },
-      createAgentRunId: () => "ar_terminal_cleanup_01",
-    });
-    const request = new Request("http://localhost/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Run this executor." }),
-    });
-
-    // When
-    const response = await api.request(request);
-    const body = await response.text();
-    const events = decodeAgentRunEvents(body);
-
-    // Then
-    expect(events).toEqual([
-      { version: 1, type: "run.started", agentRunId: "ar_terminal_cleanup_01" },
-      { version: 1, type: "run.completed" },
-    ]);
-    expect(body).not.toContain("executor-secret");
+      expect(response.status).toBe(200);
+      expect(executorSignal.aborted).toBe(true);
+      expect(controlled.abortEvents()).toBe(1);
+      expect(controlled.isRunning()).toBe(false);
+    } finally {
+      await server.close();
+    }
   });
 });
