@@ -51,6 +51,25 @@ const collectEvents = async (events: AsyncIterable<AgentRunEvent>) => {
 const unsafeAgentRunExecutor = (events: AsyncIterable<unknown>): AgentRunExecutor =>
   ({ execute: () => events }) as unknown as AgentRunExecutor;
 
+const asyncIterableFrom = <T>(items: T[]): AsyncIterable<T> => ({
+  [Symbol.asyncIterator]: () => {
+    let index = 0;
+
+    return {
+      next: () => {
+        if (index >= items.length) return Promise.resolve({ done: true, value: undefined });
+
+        const value = items[index] as T;
+        index += 1;
+
+        return Promise.resolve({ done: false, value });
+      },
+    };
+  },
+});
+
+const agentRunEvents = (...events: AgentRunExecutorEvent[]) => asyncIterableFrom(events);
+
 const emptyAsyncIterable = (): AsyncIterable<unknown> => ({
   [Symbol.asyncIterator]: () => ({
     next: () => Promise.resolve({ done: true, value: undefined }),
@@ -64,6 +83,46 @@ const rejectedAgentRunExecutor = (error: unknown): AgentRunExecutor => ({
     }),
   }),
 });
+
+const neverSettlingExecutorResult = () =>
+  new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined);
+
+const hangingAgentRunExecutor = (
+  options: {
+    onSignal?: (signal: AbortSignal) => void;
+    onCleanup?: () => void;
+    cleanup?: () => Promise<IteratorResult<AgentRunExecutorEvent>>;
+  } = {},
+): AgentRunExecutor => ({
+  execute: (_request, signal) => {
+    options.onSignal?.(signal);
+
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: neverSettlingExecutorResult,
+        ...(options.cleanup === undefined
+          ? {}
+          : {
+              return: () => {
+                options.onCleanup?.();
+                return options.cleanup?.() ?? neverSettlingExecutorResult();
+              },
+            }),
+      }),
+    };
+  },
+});
+
+const resolveCleanupAfter = (
+  delayMs: number,
+  onStopped?: () => void,
+): Promise<IteratorResult<AgentRunExecutorEvent>> =>
+  new Promise((resolve) => {
+    setTimeout(() => {
+      onStopped?.();
+      resolve({ done: true, value: undefined });
+    }, delayMs);
+  });
 
 const createLifecycle = (
   agentRunExecutor: AgentRunExecutor,
@@ -100,11 +159,13 @@ describe("createAgentRunLifecycle", () => {
     // Given
     const received: { message?: string } = {};
     const { lifecycle, telemetry } = createLifecycle({
-      async *execute(request) {
+      execute: (request) => {
         received.message = request.message;
-        yield { version: 1, type: "message.delta", text: "Closures retain scope. " };
-        yield { version: 1, type: "message.delta", text: "That is lexical scoping." };
-        yield { version: 1, type: "run.completed" };
+        return agentRunEvents(
+          { version: 1, type: "message.delta", text: "Closures retain scope. " },
+          { version: 1, type: "message.delta", text: "That is lexical scoping." },
+          { version: 1, type: "run.completed" },
+        );
       },
     });
 
@@ -183,9 +244,9 @@ describe("createAgentRunLifecycle", () => {
   it("classifies validation performed by the configured executor after the stream starts", async () => {
     // Given
     const { lifecycle, telemetry } = createLifecycle({
-      async *execute() {
+      execute: () => {
         agentRunRequestSchema.parse({ message: " " });
-        yield { version: 1, type: "run.completed" };
+        return agentRunEvents({ version: 1, type: "run.completed" });
       },
     });
 
@@ -205,14 +266,14 @@ describe("createAgentRunLifecycle", () => {
     const executors = [
       unsafeAgentRunExecutor(emptyAsyncIterable()),
       unsafeAgentRunExecutor(
-        (async function* () {
-          yield {
+        asyncIterableFrom([
+          {
             version: 1,
             type: "run.failed",
             errorClassification: "provider",
             error: "executor-secret",
-          };
-        })(),
+          },
+        ]),
       ),
     ];
 
@@ -248,10 +309,11 @@ describe("createAgentRunLifecycle", () => {
   it("keeps exactly one terminal event when the executor attempts duplicate termination", async () => {
     // Given
     const { lifecycle, telemetry } = createLifecycle({
-      async *execute() {
-        yield { version: 1, type: "run.completed" };
-        yield { version: 1, type: "run.failed", errorClassification: "internal" };
-      },
+      execute: () =>
+        agentRunEvents(
+          { version: 1, type: "run.completed" },
+          { version: 1, type: "run.failed", errorClassification: "internal" },
+        ),
     });
 
     // When
@@ -292,6 +354,52 @@ describe("createAgentRunLifecycle", () => {
     expect(telemetry.finishes).toEqual([{ outcome: "succeeded" }]);
   });
 
+  it("releases the request abort listener after execution settles", async () => {
+    // Given
+    const requestCancellation = new AbortController();
+    const addedAbortListeners: EventListenerOrEventListenerObject[] = [];
+    const addEventListener = vi.spyOn(requestCancellation.signal, "addEventListener");
+    const removeEventListener = vi.spyOn(requestCancellation.signal, "removeEventListener");
+    addEventListener.mockImplementation((type, listener, options) => {
+      if (type === "abort" && listener !== null) {
+        addedAbortListeners.push(listener);
+      }
+
+      return EventTarget.prototype.addEventListener.call(
+        requestCancellation.signal,
+        type,
+        listener,
+        options,
+      );
+    });
+    removeEventListener.mockImplementation((type, listener, options) =>
+      EventTarget.prototype.removeEventListener.call(
+        requestCancellation.signal,
+        type,
+        listener,
+        options,
+      ),
+    );
+    const { lifecycle, telemetry } = createLifecycle(
+      {
+        execute: () => agentRunEvents({ version: 1, type: "run.completed" }),
+      },
+      { signal: requestCancellation.signal },
+    );
+
+    // When
+    const events = await collectEvents(lifecycle.events);
+
+    // Then
+    expect(events.at(-1)).toEqual({ version: 1, type: "run.completed" });
+    expect(addedAbortListeners).toHaveLength(1);
+    expect(removeEventListener).toHaveBeenCalledWith("abort", addedAbortListeners[0]);
+
+    requestCancellation.abort();
+    expect(telemetry.cancellationRequests).toBe(0);
+    expect(telemetry.finishes).toEqual([{ outcome: "succeeded" }]);
+  });
+
   it("records confirmed request cancellation only after executor cleanup stops", async () => {
     // Given
     vi.useFakeTimers();
@@ -303,26 +411,16 @@ describe("createAgentRunLifecycle", () => {
       resolveSignal = resolve;
     });
     const { lifecycle, telemetry } = createLifecycle(
-      {
-        execute: (_request, signal) => {
-          resolveSignal(signal);
-
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-              return: () => {
-                cleanupStarted = true;
-                return new Promise<IteratorResult<AgentRunExecutorEvent>>((resolve) => {
-                  setTimeout(() => {
-                    stopped = true;
-                    resolve({ done: true, value: undefined });
-                  }, 19);
-                });
-              },
-            }),
-          };
+      hangingAgentRunExecutor({
+        onSignal: resolveSignal,
+        onCleanup: () => {
+          cleanupStarted = true;
         },
-      },
+        cleanup: () =>
+          resolveCleanupAfter(19, () => {
+            stopped = true;
+          }),
+      }),
       {
         cancellationConfirmationTimeoutMs: 20,
         signal: requestCancellation.signal,
@@ -356,21 +454,10 @@ describe("createAgentRunLifecycle", () => {
       resolveSignal = resolve;
     });
     const { lifecycle, telemetry } = createLifecycle(
-      {
-        execute: (_request, signal) => {
-          resolveSignal(signal);
-
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-              return: () =>
-                new Promise<IteratorResult<AgentRunExecutorEvent>>((resolve) => {
-                  setTimeout(() => resolve({ done: true, value: undefined }), 19);
-                }),
-            }),
-          };
-        },
-      },
+      hangingAgentRunExecutor({
+        onSignal: resolveSignal,
+        cleanup: () => resolveCleanupAfter(19),
+      }),
       { cancellationConfirmationTimeoutMs: 20 },
     );
     const eventsPromise = collectEvents(lifecycle.events);
@@ -397,17 +484,12 @@ describe("createAgentRunLifecycle", () => {
     vi.useFakeTimers();
     let returnCalled = false;
     const { lifecycle, telemetry } = createLifecycle(
-      {
-        execute: () => ({
-          [Symbol.asyncIterator]: () => ({
-            next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-            return: () => {
-              returnCalled = true;
-              return new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined);
-            },
-          }),
-        }),
-      },
+      hangingAgentRunExecutor({
+        onCleanup: () => {
+          returnCalled = true;
+        },
+        cleanup: neverSettlingExecutorResult,
+      }),
       { cancellationConfirmationTimeoutMs: 20 },
     );
     const eventsPromise = collectEvents(lifecycle.events);
@@ -433,16 +515,9 @@ describe("createAgentRunLifecycle", () => {
   it("fails cancellation when executor work lacks a cleanup hook and does not stop", async () => {
     // Given
     vi.useFakeTimers();
-    const { lifecycle, telemetry } = createLifecycle(
-      {
-        execute: () => ({
-          [Symbol.asyncIterator]: () => ({
-            next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-          }),
-        }),
-      },
-      { cancellationConfirmationTimeoutMs: 20 },
-    );
+    const { lifecycle, telemetry } = createLifecycle(hangingAgentRunExecutor(), {
+      cancellationConfirmationTimeoutMs: 20,
+    });
     const eventsPromise = collectEvents(lifecycle.events);
 
     // When
@@ -465,17 +540,12 @@ describe("createAgentRunLifecycle", () => {
     // Given
     vi.useFakeTimers();
     const { lifecycle, telemetry } = createLifecycle(
-      {
-        execute: () => ({
-          [Symbol.asyncIterator]: () => ({
-            next: () => new Promise<IteratorResult<AgentRunExecutorEvent>>(() => undefined),
-            return: () =>
-              new Promise<IteratorResult<AgentRunExecutorEvent>>((_resolve, reject) => {
-                setTimeout(() => reject(new Error("executor-secret")), 10);
-              }),
+      hangingAgentRunExecutor({
+        cleanup: () =>
+          new Promise((_resolve, reject) => {
+            setTimeout(() => reject(new Error("executor-secret")), 10);
           }),
-        }),
-      },
+      }),
       { cancellationConfirmationTimeoutMs: 20 },
     );
     const eventsPromise = collectEvents(lifecycle.events);

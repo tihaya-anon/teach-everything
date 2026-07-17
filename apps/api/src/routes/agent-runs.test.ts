@@ -1,5 +1,5 @@
 import type { AgentRunExecutor } from "@teach-everything/agent";
-import { agentRunEventLineSchema } from "@teach-everything/shared";
+import { agentRunEventLineSchema, type AgentRunExecutorEvent } from "@teach-everything/shared";
 import { serve } from "@hono/node-server";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app";
@@ -19,6 +19,25 @@ const waitForAbort = (signal: AbortSignal) =>
 
     signal.addEventListener("abort", () => resolve(), { once: true });
   });
+
+const agentRunEvents = (
+  ...events: AgentRunExecutorEvent[]
+): AsyncIterable<AgentRunExecutorEvent> => ({
+  [Symbol.asyncIterator]: () => {
+    let index = 0;
+
+    return {
+      next: () => {
+        if (index >= events.length) return Promise.resolve({ done: true, value: undefined });
+
+        const value = events[index] as AgentRunExecutorEvent;
+        index += 1;
+
+        return Promise.resolve({ done: false, value });
+      },
+    };
+  },
+});
 
 const withTimeout = async <T>(promise: Promise<T>, message: string) => {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -61,27 +80,48 @@ const controlledCancellationExecutor = () => {
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;
   });
+  const stop = () => {
+    if (!running) return;
+    running = false;
+    resolveStopped();
+  };
 
   return {
     abortEvents: () => abortEvents,
     executor: {
-      async *execute(_input, signal) {
+      execute: (_input, signal) => {
         running = true;
         signal.addEventListener(
           "abort",
           () => {
             abortEvents += 1;
+            stop();
           },
           { once: true },
         );
         resolveSignal(signal);
-        try {
-          yield { version: 1, type: "message.delta", text: "Executor started." };
-          await waitForAbort(signal);
-        } finally {
-          running = false;
-          resolveStopped();
-        }
+
+        let startedEventEmitted = false;
+
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => {
+              if (startedEventEmitted) {
+                return waitForAbort(signal).then(() => ({ done: true, value: undefined }));
+              }
+
+              startedEventEmitted = true;
+              return Promise.resolve({
+                done: false,
+                value: { version: 1, type: "message.delta", text: "Executor started." },
+              });
+            },
+            return: () => {
+              stop();
+              return Promise.resolve({ done: true, value: undefined });
+            },
+          }),
+        };
       },
     } satisfies AgentRunExecutor,
     isRunning: () => running,
@@ -95,11 +135,13 @@ describe("POST /api/agent-runs", () => {
     // Given
     const received: { message?: string } = {};
     const executor: AgentRunExecutor = {
-      async *execute(input) {
+      execute: (input) => {
         received.message = input.message;
-        yield { version: 1, type: "message.delta", text: "Closures retain their scope. " };
-        yield { version: 1, type: "message.delta", text: "That is lexical scoping." };
-        yield { version: 1, type: "run.completed" };
+        return agentRunEvents(
+          { version: 1, type: "message.delta", text: "Closures retain their scope. " },
+          { version: 1, type: "message.delta", text: "That is lexical scoping." },
+          { version: 1, type: "run.completed" },
+        );
       },
     };
     const api = createApp({
@@ -135,9 +177,7 @@ describe("POST /api/agent-runs", () => {
       // Given
       const api = createApp({
         agentRunExecutor: {
-          async *execute() {
-            yield { version: 1, type: "run.completed" };
-          },
+          execute: () => agentRunEvents({ version: 1, type: "run.completed" }),
         },
         createAgentRunId: () => "ar_must_not_exist",
       });

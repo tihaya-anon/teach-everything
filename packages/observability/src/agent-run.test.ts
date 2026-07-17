@@ -153,6 +153,17 @@ const installThrowingMeterProvider = () => {
   } satisfies ApiMeterProvider);
 };
 
+const createTelemetryTestHarness = () => {
+  const telemetry = installTelemetryExporters();
+  const logs: CapturedLogRecord[] = [];
+
+  return {
+    agentRunTelemetry: createAgentRunTelemetry({ logger: createCapturingLogger(logs) }),
+    logs,
+    telemetry,
+  };
+};
+
 const serializeTelemetryPayload = (
   logs: CapturedLogRecord[],
   metricsData: Awaited<ReturnType<ReturnType<typeof installTelemetryExporters>["collectMetrics"]>>,
@@ -196,9 +207,7 @@ afterEach(() => {
 describe("createAgentRunTelemetry", () => {
   it("emits metadata-only root telemetry for a successful Agent Run", async () => {
     // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: createCapturingLogger(logs) });
+    const { agentRunTelemetry, logs, telemetry } = createTelemetryTestHarness();
 
     // When
     const scope = agentRunTelemetry.start("ar_success_telemetry");
@@ -251,9 +260,7 @@ describe("createAgentRunTelemetry", () => {
     "emits metadata-only root telemetry for a %s Agent Run failure",
     async (errorClassification: AgentRunErrorClassification) => {
       // Given
-      const telemetry = installTelemetryExporters();
-      const logs: CapturedLogRecord[] = [];
-      const agentRunTelemetry = createAgentRunTelemetry({ logger: createCapturingLogger(logs) });
+      const { agentRunTelemetry, logs, telemetry } = createTelemetryTestHarness();
 
       // When
       const scope = agentRunTelemetry.start("ar_failure_telemetry");
@@ -300,9 +307,7 @@ describe("createAgentRunTelemetry", () => {
 
   it("records cancellation requested once before a cancelled terminal outcome", async () => {
     // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: createCapturingLogger(logs) });
+    const { agentRunTelemetry, logs, telemetry } = createTelemetryTestHarness();
 
     // When
     const scope = agentRunTelemetry.start("ar_cancelled_telemetry");
@@ -339,9 +344,7 @@ describe("createAgentRunTelemetry", () => {
 
   it("parents the root Agent Run span beneath active server telemetry", async () => {
     // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: createCapturingLogger(logs) });
+    const { agentRunTelemetry, telemetry } = createTelemetryTestHarness();
     const tracer = trace.getTracer("test-http-server");
 
     // When
@@ -379,9 +382,7 @@ describe("createAgentRunTelemetry", () => {
 
   it("does not record terminal telemetry more than once", async () => {
     // Given
-    const telemetry = installTelemetryExporters();
-    const logs: CapturedLogRecord[] = [];
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: createCapturingLogger(logs) });
+    const { agentRunTelemetry, logs, telemetry } = createTelemetryTestHarness();
 
     // When
     const scope = agentRunTelemetry.start("ar_terminal_once");
