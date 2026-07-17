@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
     "github:label:ensure": "node --import tsx scripts/github/ensure-label.ts",
+    "dashboards:agent-run-diagnosis:generate": "node --import tsx ops/observability/dashboards/generate-agent-run-diagnosis-dashboard.ts",
     "build": "pnpm -r build",
     "test": "vitest run && pnpm test:github-scripts",
     "test:github-scripts": "node --import tsx --test scripts/github/*.test.ts",

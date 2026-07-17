@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["dashboards/*.test.ts"]
+  "include": ["dashboards/*.test.ts", "dashboards/*.ts"]
 }

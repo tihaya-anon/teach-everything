@@ -1,14 +1,27 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-
-type JsonObject = {
-  [key: string]: JsonValue;
-};
-
-type JsonValue = boolean | JsonObject | JsonValue[] | null | number | string;
+import { buildAgentRunDiagnosisDashboard } from "./agent-run-diagnosis.dashboard";
+import type { JsonObject, JsonValue } from "./agent-run-diagnosis.dashboard";
+import {
+  agentRunDiagnosisQueries,
+  agentRunIdentifierVariableName,
+  expectedAgentRunDiagnosisDatasources,
+} from "./agent-run-diagnosis.queries";
 
 const dashboardPath = path.resolve(import.meta.dirname, "agent-run-diagnosis.dashboard.json");
+
+const currentAgentRunDiagnosisQueries = {
+  selectedRunSummary:
+    '{ span:name = "agent.run" && span."agent.run.id" = "$agent_run_id" } | select(span:name, trace:id, span:duration, span."agent.run.outcome", span."error.type")',
+  completeTrace: '{ span:name = "agent.run" && span."agent.run.id" = "$agent_run_id" }',
+  slowOperations:
+    '{ span:name = "agent.run" && span."agent.run.id" = "$agent_run_id" } >> { span."langchain.run.kind" =~ "llm|tool" && span:duration > 1s } | select(span:name, trace:id, span:duration, span:status, span."langchain.run.kind", span."langchain.run.name", span."gen_ai.tool.name", span."gen_ai.provider.name", span."gen_ai.request.model", span."gen_ai.response.model", span."gen_ai.usage.input_tokens", span."gen_ai.usage.output_tokens")',
+  failedOperations:
+    '{ span:name = "agent.run" && span."agent.run.id" = "$agent_run_id" } >> { span."langchain.run.kind" =~ "llm|tool" && span:status = error } | select(span:name, trace:id, span:duration, span:status, span."langchain.run.kind", span."langchain.run.name", span."gen_ai.tool.name", span."gen_ai.provider.name", span."gen_ai.request.model", span."gen_ai.response.model", span."gen_ai.usage.input_tokens", span."gen_ai.usage.output_tokens")',
+  correlatedLogs:
+    '{service_name="teach-everything-api"} | json | __error__="" | traceId != "" | attributes_agent_run_id != "" | attributes_agent_run_id="$agent_run_id"',
+} as const;
 
 const isObject = (value: JsonValue | undefined): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -18,6 +31,17 @@ const readDashboard = async () => {
   if (!isObject(dashboard)) throw new Error("Dashboard must be a JSON object");
 
   return dashboard;
+};
+
+const normalizeJson = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) return value.map(normalizeJson);
+  if (!isObject(value)) return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([key, childValue]) => [key, normalizeJson(childValue)]),
+  );
 };
 
 const panelsFrom = (dashboard: JsonObject) => {
@@ -129,6 +153,30 @@ const validateGrafanaDashboardModel = (dashboard: JsonObject) => {
 };
 
 describe("Agent Run Diagnosis dashboard", () => {
+  it("keeps the committed Grafana artifact structurally equal to the generated dashboard", async () => {
+    // Given
+    const committedDashboard = await readDashboard();
+    const generatedDashboard = buildAgentRunDiagnosisDashboard();
+
+    // When
+    const normalizedGeneratedDashboard = normalizeJson(generatedDashboard);
+    const normalizedCommittedDashboard = normalizeJson(committedDashboard);
+
+    // Then
+    expect(normalizedGeneratedDashboard).toEqual(normalizedCommittedDashboard);
+  });
+
+  it("preserves the current Agent Run Diagnosis query strings in named exports", () => {
+    // Given
+    const currentQueries = currentAgentRunDiagnosisQueries;
+
+    // When
+    const queryExports = agentRunDiagnosisQueries;
+
+    // Then
+    expect(queryExports).toEqual(currentQueries);
+  });
+
   it("is a loadable production Grafana dashboard artifact", async () => {
     // Given
     const dashboard = await readDashboard();
@@ -157,8 +205,8 @@ describe("Agent Run Diagnosis dashboard", () => {
     // Then
     expect(datasourceReferences).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "tempo", uid: "tempo" }),
-        expect.objectContaining({ type: "loki", uid: "loki" }),
+        expect.objectContaining(expectedAgentRunDiagnosisDatasources.tempo),
+        expect.objectContaining(expectedAgentRunDiagnosisDatasources.loki),
       ]),
     );
     expect(
@@ -180,11 +228,7 @@ describe("Agent Run Diagnosis dashboard", () => {
     const summaryQuery = queryTextFrom(targetsFrom(summaryPanel)[0] ?? {});
 
     // Then
-    expect(summaryQuery).toContain('span:name = "agent.run"');
-    expect(summaryQuery).toContain('span."agent.run.id" = "$agent_run_id"');
-    expect(summaryQuery).toContain('span."agent.run.outcome"');
-    expect(summaryQuery).toContain('span."error.type"');
-    expect(summaryQuery).toContain("span:duration");
+    expect(summaryQuery).toBe(agentRunDiagnosisQueries.selectedRunSummary);
   });
 
   it("uses the Agent Run Identifier variable to render the complete trace", async () => {
@@ -201,15 +245,13 @@ describe("Agent Run Diagnosis dashboard", () => {
       expect.arrayContaining([
         expect.objectContaining({
           label: "Agent Run Identifier",
-          name: "agent_run_id",
+          name: agentRunIdentifierVariableName,
           type: "textbox",
         }),
       ]),
     );
     expect(completeTracePanel.type).toBe("traces");
-    expect(completeTraceQuery).toBe(
-      '{ span:name = "agent.run" && span."agent.run.id" = "$agent_run_id" }',
-    );
+    expect(completeTraceQuery).toBe(agentRunDiagnosisQueries.completeTrace);
   });
 
   it("finds slow and failed child model or tool operations through the selected root", async () => {
@@ -223,25 +265,12 @@ describe("Agent Run Diagnosis dashboard", () => {
     const failedOperationTargets = targetsFrom(failedOperationsPanel);
     const slowOperationQuery = queryTextFrom(slowOperationTargets[0] ?? {});
     const failedOperationQuery = queryTextFrom(failedOperationTargets[0] ?? {});
-    const operationQueries = [...slowOperationTargets, ...failedOperationTargets].map(
-      queryTextFrom,
-    );
-    const allOperationQueries = operationQueries.join("\n");
 
     // Then
     expect(slowOperationTargets).toHaveLength(1);
     expect(failedOperationTargets).toHaveLength(1);
-    expect(operationQueries).toHaveLength(2);
-    expect(allOperationQueries).toContain('span:name = "agent.run"');
-    expect(allOperationQueries).toContain('span."agent.run.id" = "$agent_run_id"');
-    expect(allOperationQueries).toContain(">>");
-    expect(allOperationQueries).toContain('span."langchain.run.kind" =~ "llm|tool"');
-    expect(allOperationQueries).toContain("span:duration > 1s");
-    expect(allOperationQueries).toContain("span:status = error");
-    expect(allOperationQueries).toContain('span."gen_ai.tool.name"');
-    expect(allOperationQueries).toContain('span."gen_ai.provider.name"');
-    expect(slowOperationQuery).toContain("span:duration > 1s");
-    expect(failedOperationQuery).toContain("span:status = error");
+    expect(slowOperationQuery).toBe(agentRunDiagnosisQueries.slowOperations);
+    expect(failedOperationQuery).toBe(agentRunDiagnosisQueries.failedOperations);
   });
 
   it("restricts correlated logs to the API service and selected Agent Run Identifier", async () => {
@@ -253,9 +282,7 @@ describe("Agent Run Diagnosis dashboard", () => {
     const logQuery = queryTextFrom(targetsFrom(logsPanel)[0] ?? {});
 
     // Then
-    expect(logQuery).toBe(
-      '{service_name="teach-everything-api"} | json | __error__="" | traceId != "" | attributes_agent_run_id != "" | attributes_agent_run_id="$agent_run_id"',
-    );
+    expect(logQuery).toBe(agentRunDiagnosisQueries.correlatedLogs);
     expect(logsPanel.options).toEqual(
       expect.objectContaining({
         enableLogDetails: true,
