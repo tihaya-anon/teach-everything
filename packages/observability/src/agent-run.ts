@@ -99,12 +99,11 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
 
     this.runInContext(() => {
       runDiagnosticTelemetrySafely(() => {
-        this.logger.child({ "agent.run.id": this.agentRunId }).info(
-          "Agent Run cancellation requested",
-          {
+        this.logger
+          .child({ "agent.run.id": this.agentRunId })
+          .info("Agent Run cancellation requested", {
             eventName: "agent.run.cancellation_requested",
-          },
-        );
+          });
       });
     });
   }
@@ -129,10 +128,15 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
       runDiagnosticTelemetrySafely(() => {
         const runLogger = this.logger.child({ "agent.run.id": this.agentRunId });
         if (terminalOutcome.outcome === "failed") {
-          runLogger.error("Agent Run failed", {
-            eventName: "agent.run.failed",
-            attributes,
-          });
+          const cancellationFailed = terminalOutcome.errorClassification === "cancellation_failed";
+
+          runLogger.error(
+            cancellationFailed ? "Agent Run cancellation failed" : "Agent Run failed",
+            {
+              eventName: cancellationFailed ? "agent.run.cancellation_failed" : "agent.run.failed",
+              attributes,
+            },
+          );
           return;
         }
 

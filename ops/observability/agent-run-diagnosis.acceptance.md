@@ -99,7 +99,7 @@ Grafana diagnosis checks:
 - Cancellation-failure TraceQL found `ar_acceptance_labeled_05` with
   `agent.run.outcome=failed` and `error.type=cancellation_failed`.
 - Loki query
-  `{service_name="teach-everything-api"} | json | __error__="" | attributes_agent_run_id != "" | attributes_agent_run_id="ar_acceptance_labeled_01"`
+  `{service_name="teach-everything-api"} | json | __error__="" | traceId != "" | attributes_agent_run_id != "" | attributes_agent_run_id="ar_acceptance_labeled_01"`
   returned only the two lifecycle records for that Agent Run, each with trace ID
   `3003a914d0e90ae7932540e7178916a8`.
 - Grafana's Loki datasource has the PGL-provisioned `TraceID` derived field pointing at datasource
