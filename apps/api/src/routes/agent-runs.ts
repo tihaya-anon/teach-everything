@@ -8,7 +8,8 @@ import {
   encodeAgentRunEventLine,
   type AgentRunRequest,
 } from "@teach-everything/shared";
-import type { Context, Hono } from "hono";
+import type { Context } from "hono";
+import type { HonoBase } from "hono/hono-base";
 import { validator } from "hono/validator";
 import { createAgentRunLifecycle } from "../agent-run-lifecycle";
 
@@ -96,7 +97,7 @@ export const createAgentRunResponse = ({
     },
   });
 
-export const registerAgentRunRoutes = <App extends Hono>(
+export const registerAgentRunRoutes = <App extends HonoBase>(
   app: App,
   { agentRunExecutor, agentRunTelemetry, createAgentRunId }: RegisterAgentRunRoutesOptions,
 ) =>

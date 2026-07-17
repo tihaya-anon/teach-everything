@@ -1,10 +1,11 @@
-import { agentRunEventLineSchema, type AgentRunEvent } from "@teach-everything/shared";
 import {
   useLocalRuntime,
   type ChatModelAdapter,
   type ChatModelRunResult,
   type ThreadMessage,
 } from "@assistant-ui/react";
+import { startAgentRunStream, type StartAgentRunStream } from "./agent-run-client";
+import { consumeAgentRunStream, type AgentRunStreamUpdate } from "./agent-run-stream-consumer";
 
 const getLatestUserText = (messages: readonly ThreadMessage[]) => {
   let userMessage: ThreadMessage | undefined;
@@ -25,113 +26,33 @@ const getLatestUserText = (messages: readonly ThreadMessage[]) => {
   );
 };
 
-const protocolError = () => new Error("Agent Run stream violates protocol");
+const toAssistantTextUpdate = (
+  update: Extract<AgentRunStreamUpdate, { type: "message" | "completed" }>,
+): ChatModelRunResult => ({
+  content: [{ type: "text", text: update.text }],
+  metadata: { custom: { agentRunId: update.agentRunId } },
+  ...(update.type === "completed"
+    ? { status: { type: "complete" as const, reason: "stop" as const } }
+    : {}),
+});
 
-const decodeAgentRunEvent = (line: string) => {
-  const parsedEvent = agentRunEventLineSchema.safeParse(`${line}\n`);
-  if (!parsedEvent.success) throw protocolError();
-  return parsedEvent.data;
-};
-
-const readAgentRunEvents = async function* (body: ReadableStream<Uint8Array>) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let pending = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (value) pending += decoder.decode(value, { stream: true });
-      if (done) {
-        pending += decoder.decode();
-        break;
-      }
-
-      let delimiter = pending.indexOf("\n");
-      while (delimiter >= 0) {
-        const line = pending.slice(0, delimiter);
-        pending = pending.slice(delimiter + 1);
-        yield decodeAgentRunEvent(line);
-        delimiter = pending.indexOf("\n");
-      }
-    }
-
-    if (pending.length > 0) throw protocolError();
-  } finally {
-    reader.releaseLock();
-  }
-};
-
-const getAgentRunId = (event: AgentRunEvent, responseAgentRunId: string) => {
-  if (event.type !== "run.started" || event.agentRunId !== responseAgentRunId) {
-    throw new Error("Agent Run stream did not start with the response identifier");
-  }
-
-  return event.agentRunId;
-};
-
-export const createAgentRunModel = (fetcher: typeof fetch = fetch): ChatModelAdapter => ({
+export const createAgentRunModel = (
+  startRun: StartAgentRunStream = startAgentRunStream,
+): ChatModelAdapter => ({
   async *run({ messages, abortSignal }): AsyncGenerator<ChatModelRunResult, void> {
-    const response = await fetcher("/api/agent-runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: getLatestUserText(messages).trim() }),
+    const startedRun = await startRun({
+      message: getLatestUserText(messages).trim(),
       signal: abortSignal,
     });
 
-    if (!response.ok) {
-      throw new Error("Agent Run request failed");
-    }
-
-    const responseAgentRunId = response.headers.get("X-Agent-Run-Id");
-    if (!responseAgentRunId || !response.body) {
-      throw new Error("Agent Run response is missing its stream identifier or body");
-    }
-
-    let agentRunId = "";
-    let started = false;
-    let terminalEvent: AgentRunEvent | undefined;
-    let text = "";
-
-    for await (const event of readAgentRunEvents(response.body)) {
-      if (terminalEvent) throw protocolError();
-
-      if (!started) {
-        agentRunId = getAgentRunId(event, responseAgentRunId);
-        started = true;
+    for await (const update of consumeAgentRunStream(startedRun)) {
+      if (update.type === "message" || update.type === "completed") {
+        yield toAssistantTextUpdate(update);
         continue;
       }
 
-      if (event.type === "message.delta") {
-        text += event.text;
-        yield { content: [{ type: "text", text }], metadata: { custom: { agentRunId } } };
-        continue;
-      }
-
-      if (
-        event.type === "run.completed" ||
-        event.type === "run.failed" ||
-        event.type === "run.cancelled"
-      ) {
-        terminalEvent = event;
-        continue;
-      }
-
-      throw protocolError();
+      throw new Error("Agent Run did not complete successfully");
     }
-
-    if (!started || !terminalEvent) throw protocolError();
-
-    if (terminalEvent.type === "run.completed") {
-      yield {
-        content: [{ type: "text", text }],
-        metadata: { custom: { agentRunId } },
-        status: { type: "complete", reason: "stop" },
-      };
-      return;
-    }
-
-    throw new Error("Agent Run did not complete successfully");
   },
 });
 

@@ -1,16 +1,20 @@
 import type { ChatModelRunOptions, ChatModelRunResult, ThreadMessage } from "@assistant-ui/react";
 import { describe, expect, it, vi } from "vitest";
+import type { StartAgentRunStream } from "./agent-run-client";
 import { createAgentRunModel } from "./assistant-runtime";
 
+const createUserMessage = (text: string, id: string): ThreadMessage => ({
+  id,
+  createdAt: new Date(0),
+  role: "user",
+  content: [{ type: "text", text }],
+  attachments: [],
+  metadata: { custom: {} },
+});
+
 const messages = [
-  {
-    id: "message_01",
-    createdAt: new Date(0),
-    role: "user" as const,
-    content: [{ type: "text" as const, text: "Explain lexical scope." }],
-    attachments: [],
-    metadata: { custom: {} },
-  },
+  createUserMessage("First question.", "message_01"),
+  createUserMessage("  Explain lexical scope.  ", "message_03"),
 ] satisfies ThreadMessage[];
 
 const createRunOptions = (signal: AbortSignal) =>
@@ -21,6 +25,22 @@ const createRunOptions = (signal: AbortSignal) =>
     context: {},
     unstable_getMessage: () => messages[0]!,
   }) satisfies ChatModelRunOptions;
+
+const streamFromText = (body: string) => {
+  const encoder = new TextEncoder();
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(body));
+      controller.close();
+    },
+  });
+};
+
+const completedStream = () =>
+  streamFromText(
+    '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"message.delta","text":"Lexical "}\n{"version":1,"type":"message.delta","text":"scope."}\n{"version":1,"type":"run.completed"}\n',
+  );
 
 const collectUpdates = async (adapter: ReturnType<typeof createAgentRunModel>) => {
   const result = adapter.run(createRunOptions(new AbortController().signal));
@@ -35,64 +55,46 @@ const collectUpdates = async (adapter: ReturnType<typeof createAgentRunModel>) =
   return updates;
 };
 
-const createStreamResponse = (body: string) =>
-  new Response(body, {
-    headers: {
-      "Content-Type": "application/x-ndjson",
-      "X-Agent-Run-Id": "ar_test_02",
-    },
-  });
-
 describe("createAgentRunModel", () => {
-  it("streams cumulative assistant text and retains the Agent Run Identifier", async () => {
+  it("starts an Agent Run from the latest user text with the assistant abort signal", async () => {
     // Given
-    const encoder = new TextEncoder();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('{"version":1,"type":"run.started","agentRunId":"ar_test_'),
-            );
-            controller.enqueue(
-              encoder.encode(
-                '02"}\n{"version":1,"type":"message.delta","text":"Lexical "}\n{"version":1,"type":"message.delta","text":"scope."}\n{"version":1,"type":"run.completed"}\n',
-              ),
-            );
-            controller.close();
-          },
-        }),
-        {
-          headers: {
-            "Content-Type": "application/x-ndjson",
-            "X-Agent-Run-Id": "ar_test_02",
-          },
-        },
-      ),
-    );
-    const adapter = createAgentRunModel(fetcher);
     const cancellation = new AbortController();
-    const options = createRunOptions(cancellation.signal);
+    const starter = vi.fn<StartAgentRunStream>().mockResolvedValue({
+      agentRunId: "ar_test_02",
+      body: completedStream(),
+    });
+    const adapter = createAgentRunModel(starter);
 
     // When
-    const result = adapter.run(options);
+    const result = adapter.run(createRunOptions(cancellation.signal));
     if (!(Symbol.asyncIterator in result)) {
       throw new Error("Expected the Agent Run adapter to stream updates");
     }
-    const updates: ChatModelRunResult[] = [];
     for await (const update of result) {
-      updates.push(update);
+      // Drain the run so the starter is invoked.
+      expect(update.content).toBeDefined();
     }
 
     // Then
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/agent-runs",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ message: "Explain lexical scope." }),
-        signal: cancellation.signal,
+    expect(starter).toHaveBeenCalledWith({
+      message: "Explain lexical scope.",
+      signal: cancellation.signal,
+    });
+  });
+
+  it("maps consumer updates to cumulative assistant text and completion status", async () => {
+    // Given
+    const adapter = createAgentRunModel(
+      vi.fn<StartAgentRunStream>().mockResolvedValue({
+        agentRunId: "ar_test_02",
+        body: completedStream(),
       }),
     );
+
+    // When
+    const updates = await collectUpdates(adapter);
+
+    // Then
     expect(updates).toEqual([
       {
         content: [{ type: "text", text: "Lexical " }],
@@ -111,52 +113,21 @@ describe("createAgentRunModel", () => {
   });
 
   it.each([
-    ["malformed JSON", '{"version":1,"type":"run.started"\n'],
     [
-      "an unterminated final JSON record",
-      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}',
+      "failed",
+      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"message.delta","text":"Delivered text."}\n{"version":1,"type":"run.failed","errorClassification":"provider"}\n',
     ],
     [
-      "an unknown protocol version",
-      '{"version":2,"type":"run.started","agentRunId":"ar_test_02"}\n',
+      "cancelled",
+      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"message.delta","text":"Delivered text."}\n{"version":1,"type":"run.cancelled"}\n',
     ],
-    ["an unknown event type", '{"version":1,"type":"tool.started","toolName":"search"}\n'],
-    [
-      "a stream that does not start with run.started",
-      '{"version":1,"type":"message.delta","text":"started late"}\n{"version":1,"type":"run.completed"}\n',
-    ],
-    ["premature EOF", '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n'],
-    [
-      "a duplicate terminal event",
-      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"run.completed"}\n{"version":1,"type":"run.completed"}\n',
-    ],
-    [
-      "an event after termination",
-      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"run.completed"}\n{"version":1,"type":"message.delta","text":"after termination"}\n',
-    ],
-  ])("rejects %s", async (_description, body) => {
+  ])("throws the existing unsuccessful-run error when the Agent Run is %s", async (_type, body) => {
     // Given
     const adapter = createAgentRunModel(
-      vi.fn<typeof fetch>().mockResolvedValue(createStreamResponse(body)),
-    );
-
-    // When
-    const run = collectUpdates(adapter);
-
-    // Then
-    await expect(run).rejects.toThrow("Agent Run stream");
-  });
-
-  it("preserves delivered assistant content before handling a valid failure event", async () => {
-    // Given
-    const adapter = createAgentRunModel(
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          createStreamResponse(
-            '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"message.delta","text":"Delivered text."}\n{"version":1,"type":"run.failed","errorClassification":"provider"}\n',
-          ),
-        ),
+      vi.fn<StartAgentRunStream>().mockResolvedValue({
+        agentRunId: "ar_test_02",
+        body: streamFromText(body),
+      }),
     );
     const result = adapter.run(createRunOptions(new AbortController().signal));
     if (!(Symbol.asyncIterator in result)) {
@@ -171,7 +142,6 @@ describe("createAgentRunModel", () => {
         updates.push(update);
       }
     } catch (error) {
-      // The existing conversation runtime treats failed runs as an adapter error.
       caughtError = error;
     }
 

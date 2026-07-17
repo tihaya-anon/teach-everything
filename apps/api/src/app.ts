@@ -7,6 +7,7 @@ import {
 } from "@teach-everything/observability";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import type { BlankEnv, ExtractSchema } from "hono/types";
 import { logger as defaultLogger } from "./logger";
 import { invalidAgentRunRequestResponse, registerAgentRunRoutes } from "./routes/agent-runs";
 import { registerHealthRoutes } from "./routes/health";
@@ -66,7 +67,7 @@ export const createApp = ({
   const appWithHealthRoute = registerHealthRoutes(baseApp);
 
   if (agentRunExecutor) {
-    registerAgentRunRoutes(appWithHealthRoute, {
+    return registerAgentRunRoutes(appWithHealthRoute, {
       agentRunExecutor,
       agentRunTelemetry,
       createAgentRunId,
@@ -78,4 +79,8 @@ export const createApp = ({
 
 export const app = createApp();
 
-export type AppType = typeof app;
+type AppWithHealthRoute = ReturnType<typeof registerHealthRoutes<Hono>>;
+type AppWithAgentRunRoute = ReturnType<typeof registerAgentRunRoutes<AppWithHealthRoute>>;
+type AppSchema = ExtractSchema<typeof app> & ExtractSchema<AppWithAgentRunRoute>;
+
+export type AppType = Hono<BlankEnv, AppSchema>;
