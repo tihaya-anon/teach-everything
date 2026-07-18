@@ -1,6 +1,6 @@
 import {
   createLogger,
-  logLevels,
+  LOG_LEVELS,
   type LogFormat,
   type LogLevel,
   type LoggerOptions,
@@ -16,8 +16,8 @@ export type EnvironmentLoggerOptions = {
 
 const parseLevel = (value: string | undefined): LogLevel => {
   const level = value?.toLowerCase() ?? "info";
-  if (logLevels.some((candidate) => candidate === level)) return level as LogLevel;
-  throw new Error(`LOG_LEVEL must be one of: ${logLevels.join(", ")}`);
+  if (LOG_LEVELS.some((candidate) => candidate === level)) return level as LogLevel;
+  throw new Error(`LOG_LEVEL must be one of: ${LOG_LEVELS.join(", ")}`);
 };
 
 const parseFormat = (value: string | undefined, variableName: string): LogFormat => {

@@ -3,9 +3,9 @@ import { dirname } from "node:path";
 import type { Writable } from "node:stream";
 import { isSpanContextValid, trace } from "@opentelemetry/api";
 
-export const logLevels = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
+export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] as const;
 
-export type LogLevel = (typeof logLevels)[number];
+export type LogLevel = (typeof LOG_LEVELS)[number];
 export type LogFormat = "json" | "plaintext";
 export type LogAttributeValue =
   string | number | boolean | null | LogAttributeValue[] | { [key: string]: LogAttributeValue };
@@ -70,7 +70,7 @@ type Sink = {
   shutdown(): Promise<void>;
 };
 
-const severityNumbers: Record<LogLevel, number> = {
+const SEVERITY_NUMBERS: Record<LogLevel, number> = {
   trace: 1,
   debug: 5,
   info: 9,
@@ -79,7 +79,7 @@ const severityNumbers: Record<LogLevel, number> = {
   fatal: 21,
 };
 
-const levelRanks = Object.fromEntries(logLevels.map((level, index) => [level, index])) as Record<
+const LEVEL_RANKS = Object.fromEntries(LOG_LEVELS.map((level, index) => [level, index])) as Record<
   LogLevel,
   number
 >;
@@ -213,7 +213,7 @@ export const createLogger = (options: LoggerOptions): Logger => {
 
   const buildLogger = (boundAttributes: LogAttributes): Logger => {
     const write = (level: LogLevel, body: string, context: LogContext = {}) => {
-      if (levelRanks[level] < levelRanks[minimumLevel]) return;
+      if (LEVEL_RANKS[level] < LEVEL_RANKS[minimumLevel]) return;
 
       const now = new Date().toISOString();
       const activeSpanContext = trace.getActiveSpan()?.spanContext();
@@ -234,7 +234,7 @@ export const createLogger = (options: LoggerOptions): Logger => {
       const record: LogRecord = {
         timestamp: now,
         observedTimestamp: now,
-        severityNumber: severityNumbers[level],
+        severityNumber: SEVERITY_NUMBERS[level],
         severityText: level.toUpperCase() as Uppercase<LogLevel>,
         body,
         resource,

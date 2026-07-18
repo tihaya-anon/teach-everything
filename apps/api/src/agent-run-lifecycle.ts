@@ -12,7 +12,7 @@ import {
   type AgentRunExecutorEvent,
   type AgentRunRequest,
 } from "@teach-everything/shared";
-import { defaultAgentRunCancellationConfirmationTimeoutMs } from "./agent-run-lifecycle.defaults";
+import { DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS } from "./agent-run-lifecycle.defaults";
 
 type TerminalAgentRunEvent = Extract<
   AgentRunEvent,
@@ -118,7 +118,7 @@ const failureEvent = (errorClassification: AgentRunErrorClassification): Termina
 export const createAgentRunLifecycle = ({
   agentRunExecutor,
   agentRunId,
-  cancellationConfirmationTimeoutMs = defaultAgentRunCancellationConfirmationTimeoutMs,
+  cancellationConfirmationTimeoutMs = DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS,
   input,
   signal,
   telemetryScope,

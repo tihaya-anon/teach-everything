@@ -3,7 +3,7 @@
 import { fileURLToPath } from "node:url";
 import { GhApiError, ghApi, parseRepository, repositoryEndpoint, type GhApi } from "./gh-api.ts";
 
-const usage = `Usage:
+const USAGE = `Usage:
   pnpm github:label:ensure -- [--repo <owner/repo>] --name <name> --color <RRGGBB> [--description <text>]`;
 
 type LabelOptions = {
@@ -106,7 +106,7 @@ export const ensureLabel = async (options: LabelOptions, api: GhApi = ghApi) => 
 const run = async () => {
   const options = parseEnsureLabelArguments(process.argv.slice(2));
   if ("help" in options) {
-    process.stdout.write(`${usage}\n`);
+    process.stdout.write(`${USAGE}\n`);
     return;
   }
 
@@ -116,7 +116,7 @@ const run = async () => {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   run().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`ensure-label: ${message}\n\n${usage}\n`);
+    process.stderr.write(`ensure-label: ${message}\n\n${USAGE}\n`);
     process.exitCode = 1;
   });
 }

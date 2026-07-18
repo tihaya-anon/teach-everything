@@ -25,7 +25,7 @@ import {
 } from "./agent-run";
 import type { Logger, LogAttributes, LogContext } from "./logger";
 
-const agentRunOutcomeAttribute = `${SemanticConventions.METADATA}.agent_run.outcome`;
+const AGENT_RUN_OUTCOME_ATTRIBUTE = `${SemanticConventions.METADATA}.agent_run.outcome`;
 
 type CapturedLogRecord = {
   attributes: LogAttributes;
@@ -73,7 +73,7 @@ const createCapturingLogger = (
   };
 };
 
-const throwingLogger: Logger = {
+const THROWING_LOGGER: Logger = {
   trace: () => {
     throw new Error("SENTINEL_LOG_SINK_FAILURE");
   },
@@ -228,7 +228,7 @@ describe("createAgentRunTelemetry", () => {
     expect(rootSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.AGENT,
       [SemanticConventions.SESSION_ID]: "ar_success_telemetry",
-      [agentRunOutcomeAttribute]: "succeeded",
+      [AGENT_RUN_OUTCOME_ATTRIBUTE]: "succeeded",
     });
     expect(rootSpan?.status.code).toBe(SpanStatusCode.UNSET);
     expect(rootSpan?.events).toEqual([]);
@@ -247,14 +247,14 @@ describe("createAgentRunTelemetry", () => {
       { [SemanticConventions.SESSION_ID]: "ar_success_telemetry" },
       {
         [SemanticConventions.SESSION_ID]: "ar_success_telemetry",
-        [agentRunOutcomeAttribute]: "succeeded",
+        [AGENT_RUN_OUTCOME_ATTRIBUTE]: "succeeded",
       },
     ]);
 
     const durationMetric = findAgentRunDurationMetric(metricsData);
     expect(durationMetric?.dataPoints).toHaveLength(1);
     expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      [agentRunOutcomeAttribute]: "succeeded",
+      [AGENT_RUN_OUTCOME_ATTRIBUTE]: "succeeded",
     });
     expect(JSON.stringify(durationMetric?.dataPoints)).not.toContain("ar_success_telemetry");
   });
@@ -284,7 +284,7 @@ describe("createAgentRunTelemetry", () => {
       expect(rootSpan?.attributes).toMatchObject({
         [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.AGENT,
         [SemanticConventions.SESSION_ID]: "ar_failure_telemetry",
-        [agentRunOutcomeAttribute]: "failed",
+        [AGENT_RUN_OUTCOME_ATTRIBUTE]: "failed",
         "error.type": errorClassification,
       });
       expect(rootSpan?.status.code).toBe(SpanStatusCode.ERROR);
@@ -301,7 +301,7 @@ describe("createAgentRunTelemetry", () => {
         { [SemanticConventions.SESSION_ID]: "ar_failure_telemetry" },
         {
           [SemanticConventions.SESSION_ID]: "ar_failure_telemetry",
-          [agentRunOutcomeAttribute]: "failed",
+          [AGENT_RUN_OUTCOME_ATTRIBUTE]: "failed",
           "error.type": errorClassification,
         },
       ]);
@@ -309,7 +309,7 @@ describe("createAgentRunTelemetry", () => {
       const durationMetric = findAgentRunDurationMetric(metricsData);
       expect(durationMetric?.dataPoints).toHaveLength(1);
       expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-        [agentRunOutcomeAttribute]: "failed",
+        [AGENT_RUN_OUTCOME_ATTRIBUTE]: "failed",
         "error.type": errorClassification,
       });
       expect(JSON.stringify(durationMetric?.dataPoints)).not.toContain("ar_failure_telemetry");
@@ -335,7 +335,7 @@ describe("createAgentRunTelemetry", () => {
     expect(rootSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.AGENT,
       [SemanticConventions.SESSION_ID]: "ar_cancelled_telemetry",
-      [agentRunOutcomeAttribute]: "cancelled",
+      [AGENT_RUN_OUTCOME_ATTRIBUTE]: "cancelled",
     });
     expect(rootSpan?.status.code).toBe(SpanStatusCode.UNSET);
 
@@ -350,7 +350,7 @@ describe("createAgentRunTelemetry", () => {
 
     const durationMetric = findAgentRunDurationMetric(metricsData);
     expect(durationMetric?.dataPoints[0]?.attributes).toEqual({
-      [agentRunOutcomeAttribute]: "cancelled",
+      [AGENT_RUN_OUTCOME_ATTRIBUTE]: "cancelled",
     });
   });
 
@@ -378,7 +378,7 @@ describe("createAgentRunTelemetry", () => {
     // Given
     const traceTelemetry = installThrowingSpanExporter();
     installThrowingMeterProvider();
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: throwingLogger });
+    const agentRunTelemetry = createAgentRunTelemetry({ logger: THROWING_LOGGER });
 
     // When
     const run = () => {

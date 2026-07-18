@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import { buildAgentRunDiagnosisDashboard } from "./agent-run-diagnosis.dashboard";
 import type { JsonObject, JsonValue } from "./agent-run-diagnosis.dashboard";
 import {
-  agentRunDiagnosisQueries,
-  agentRunIdentifierVariableName,
-  expectedAgentRunDiagnosisDatasources,
+  AGENT_RUN_DIAGNOSIS_QUERIES,
+  AGENT_RUN_IDENTIFIER_VARIABLE_NAME,
+  EXPECTED_AGENT_RUN_DIAGNOSIS_DATASOURCES,
 } from "./agent-run-diagnosis.queries";
 
 const dashboardPath = path.resolve(import.meta.dirname, "agent-run-diagnosis.dashboard.json");
 
-const currentAgentRunDiagnosisQueries = {
+const CURRENT_AGENT_RUN_DIAGNOSIS_QUERIES = {
   selectedRunSummary:
     '{ span:name = "agent.run" && span."session.id" = "$agent_run_id" } | select(span:name, trace:id, span:duration, span."metadata.agent_run.outcome", span."error.type")',
   completeTrace: '{ span:name = "agent.run" && span."session.id" = "$agent_run_id" }',
@@ -168,10 +168,10 @@ describe("Agent Run Diagnosis dashboard", () => {
 
   it("preserves the current Agent Run Diagnosis query strings in named exports", () => {
     // Given
-    const currentQueries = currentAgentRunDiagnosisQueries;
+    const currentQueries = CURRENT_AGENT_RUN_DIAGNOSIS_QUERIES;
 
     // When
-    const queryExports = agentRunDiagnosisQueries;
+    const queryExports = AGENT_RUN_DIAGNOSIS_QUERIES;
 
     // Then
     expect(queryExports).toEqual(currentQueries);
@@ -205,8 +205,8 @@ describe("Agent Run Diagnosis dashboard", () => {
     // Then
     expect(datasourceReferences).toEqual(
       expect.arrayContaining([
-        expect.objectContaining(expectedAgentRunDiagnosisDatasources.tempo),
-        expect.objectContaining(expectedAgentRunDiagnosisDatasources.loki),
+        expect.objectContaining(EXPECTED_AGENT_RUN_DIAGNOSIS_DATASOURCES.tempo),
+        expect.objectContaining(EXPECTED_AGENT_RUN_DIAGNOSIS_DATASOURCES.loki),
       ]),
     );
     expect(
@@ -228,7 +228,7 @@ describe("Agent Run Diagnosis dashboard", () => {
     const summaryQuery = queryTextFrom(targetsFrom(summaryPanel)[0] ?? {});
 
     // Then
-    expect(summaryQuery).toBe(agentRunDiagnosisQueries.selectedRunSummary);
+    expect(summaryQuery).toBe(AGENT_RUN_DIAGNOSIS_QUERIES.selectedRunSummary);
   });
 
   it("uses the Agent Run Identifier variable to render the complete trace", async () => {
@@ -245,13 +245,13 @@ describe("Agent Run Diagnosis dashboard", () => {
       expect.arrayContaining([
         expect.objectContaining({
           label: "Agent Run Identifier",
-          name: agentRunIdentifierVariableName,
+          name: AGENT_RUN_IDENTIFIER_VARIABLE_NAME,
           type: "textbox",
         }),
       ]),
     );
     expect(completeTracePanel.type).toBe("traces");
-    expect(completeTraceQuery).toBe(agentRunDiagnosisQueries.completeTrace);
+    expect(completeTraceQuery).toBe(AGENT_RUN_DIAGNOSIS_QUERIES.completeTrace);
   });
 
   it("finds slow and failed child model or tool operations through the selected root", async () => {
@@ -269,8 +269,8 @@ describe("Agent Run Diagnosis dashboard", () => {
     // Then
     expect(slowOperationTargets).toHaveLength(1);
     expect(failedOperationTargets).toHaveLength(1);
-    expect(slowOperationQuery).toBe(agentRunDiagnosisQueries.slowOperations);
-    expect(failedOperationQuery).toBe(agentRunDiagnosisQueries.failedOperations);
+    expect(slowOperationQuery).toBe(AGENT_RUN_DIAGNOSIS_QUERIES.slowOperations);
+    expect(failedOperationQuery).toBe(AGENT_RUN_DIAGNOSIS_QUERIES.failedOperations);
   });
 
   it("restricts correlated logs to the API service and selected Agent Run Identifier", async () => {
@@ -282,7 +282,7 @@ describe("Agent Run Diagnosis dashboard", () => {
     const logQuery = queryTextFrom(targetsFrom(logsPanel)[0] ?? {});
 
     // Then
-    expect(logQuery).toBe(agentRunDiagnosisQueries.correlatedLogs);
+    expect(logQuery).toBe(AGENT_RUN_DIAGNOSIS_QUERIES.correlatedLogs);
     expect(logsPanel.options).toEqual(
       expect.objectContaining({
         enableLogDetails: true,

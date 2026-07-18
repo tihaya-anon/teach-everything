@@ -11,15 +11,15 @@ import {
   type Tracer,
 } from "@opentelemetry/api";
 import {
-  llmOperationAttribute,
+  LLM_OPERATION_ATTRIBUTE,
   readLlmEndMetadata,
   readLlmTokenMetricAttributes,
   readRunStartMetadata,
   readToolName,
-  runDurationMetricName,
-  runStatusAttribute,
-  tokenTypeAttribute,
-  tokenUsageMetricName,
+  RUN_DURATION_METRIC_NAME,
+  RUN_STATUS_ATTRIBUTE,
+  TOKEN_TYPE_ATTRIBUTE,
+  TOKEN_USAGE_METRIC_NAME,
   type LangChainLlmEndMetadata,
   type LangChainRunKind,
 } from "./langchain-diagnostics";
@@ -79,11 +79,11 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this.awaitHandlers = true;
     this.tracer = trace.getTracer(options.instrumentationName, options.instrumentationVersion);
     const meter = metrics.getMeter(options.instrumentationName, options.instrumentationVersion);
-    this.runDuration = meter.createHistogram(runDurationMetricName, {
+    this.runDuration = meter.createHistogram(RUN_DURATION_METRIC_NAME, {
       description: "Duration of LangChain and LangGraph runs",
       unit: "s",
     });
-    this.tokenUsage = meter.createHistogram(tokenUsageMetricName, {
+    this.tokenUsage = meter.createHistogram(TOKEN_USAGE_METRIC_NAME, {
       description: "Number of input and output tokens used by a generative AI operation",
       unit: "{token}",
     });
@@ -208,7 +208,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     this.safely(() =>
       this.runDuration.record(durationSeconds, {
         ...run.metricAttributes,
-        [runStatusAttribute]: status,
+        [RUN_STATUS_ATTRIBUTE]: status,
       }),
     );
   }
@@ -223,7 +223,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
       this.safely(() =>
         span.setAttributes({
           ...attributes,
-          [runStatusAttribute]: "ok",
+          [RUN_STATUS_ATTRIBUTE]: "ok",
         }),
       );
       this.safely(() => span.end());
@@ -237,7 +237,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     if (run?.span === undefined) return;
 
     const span = run.span;
-    this.safely(() => span.setAttribute(runStatusAttribute, "error"));
+    this.safely(() => span.setAttribute(RUN_STATUS_ATTRIBUTE, "error"));
     this.safely(() => span.setStatus({ code: SpanStatusCode.ERROR }));
     this.safely(() => span.end());
     this.recordDuration(run, "error");
@@ -257,7 +257,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         this.safely(() =>
           this.tokenUsage.record(inputTokens, {
             ...tokenAttributes,
-            [tokenTypeAttribute]: "input",
+            [TOKEN_TYPE_ATTRIBUTE]: "input",
           }),
         );
       }
@@ -266,7 +266,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
         this.safely(() =>
           this.tokenUsage.record(outputTokens, {
             ...tokenAttributes,
-            [tokenTypeAttribute]: "output",
+            [TOKEN_TYPE_ATTRIBUTE]: "output",
           }),
         );
       }
@@ -307,7 +307,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     runName?: string,
   ) {
     this.startRun("llm", runName, runId, parentRunId, tags, metadata, {
-      [llmOperationAttribute]: "text_completion",
+      [LLM_OPERATION_ATTRIBUTE]: "text_completion",
     });
   }
 
@@ -322,7 +322,7 @@ class OpenTelemetryCallbackHandler extends BaseCallbackHandler {
     runName?: string,
   ) {
     this.startRun("llm", runName, runId, parentRunId, tags, metadata, {
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
     });
   }
 

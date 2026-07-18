@@ -17,17 +17,18 @@ export type LangChainLlmEndMetadata = {
   spanAttributes: Attributes;
 };
 
-export const runStatusAttribute = `${SemanticConventions.METADATA}.langchain.run.status` as const;
+export const RUN_STATUS_ATTRIBUTE = `${SemanticConventions.METADATA}.langchain.run.status` as const;
 
-export const llmOperationAttribute = `${SemanticConventions.METADATA}.llm.operation.name` as const;
+export const LLM_OPERATION_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.llm.operation.name` as const;
 
-export const langGraphStepAttribute = `${SemanticConventions.METADATA}.langgraph.step` as const;
+export const LANG_GRAPH_STEP_ATTRIBUTE = `${SemanticConventions.METADATA}.langgraph.step` as const;
 
-export const tokenTypeAttribute = `${SemanticConventions.METADATA}.llm.token.type` as const;
+export const TOKEN_TYPE_ATTRIBUTE = `${SemanticConventions.METADATA}.llm.token.type` as const;
 
-export const runDurationMetricName = "langchain.run.duration";
+export const RUN_DURATION_METRIC_NAME = "langchain.run.duration";
 
-export const tokenUsageMetricName = "gen_ai.client.token.usage";
+export const TOKEN_USAGE_METRIC_NAME = "gen_ai.client.token.usage";
 
 export const openInferenceSpanKind = (kind: LangChainRunKind): OpenInferenceSpanKind => {
   switch (kind) {
@@ -79,13 +80,13 @@ export const readRunStartMetadata = (
     spanAttributes[SemanticConventions.GRAPH_NODE_NAME] = metadata.langgraph_node;
   }
   if (typeof metadata?.langgraph_step === "number") {
-    spanAttributes[langGraphStepAttribute] = metadata.langgraph_step;
+    spanAttributes[LANG_GRAPH_STEP_ATTRIBUTE] = metadata.langgraph_step;
   }
 
   const metricAttributes = commonRunAttributes(kind, name, metadata);
 
-  if (typeof attributes[llmOperationAttribute] === "string") {
-    metricAttributes[llmOperationAttribute] = attributes[llmOperationAttribute];
+  if (typeof attributes[LLM_OPERATION_ATTRIBUTE] === "string") {
+    metricAttributes[LLM_OPERATION_ATTRIBUTE] = attributes[LLM_OPERATION_ATTRIBUTE];
   }
 
   return {

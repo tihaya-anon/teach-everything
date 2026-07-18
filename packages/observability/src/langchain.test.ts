@@ -15,19 +15,19 @@ import { createAgentRunTelemetry } from "./agent-run";
 import { createLangChainTelemetryCallback } from "./langchain";
 import type { Logger } from "./logger";
 
-const langGraphStepAttribute = `${SemanticConventions.METADATA}.langgraph.step`;
-const llmOperationAttribute = `${SemanticConventions.METADATA}.llm.operation.name`;
-const runStatusAttribute = `${SemanticConventions.METADATA}.langchain.run.status`;
-const tokenTypeAttribute = `${SemanticConventions.METADATA}.llm.token.type`;
+const LANG_GRAPH_STEP_ATTRIBUTE = `${SemanticConventions.METADATA}.langgraph.step`;
+const LLM_OPERATION_ATTRIBUTE = `${SemanticConventions.METADATA}.llm.operation.name`;
+const RUN_STATUS_ATTRIBUTE = `${SemanticConventions.METADATA}.langchain.run.status`;
+const TOKEN_TYPE_ATTRIBUTE = `${SemanticConventions.METADATA}.llm.token.type`;
 
-const noopLogger: Logger = {
+const NOOP_LOGGER: Logger = {
   trace: () => undefined,
   debug: () => undefined,
   info: () => undefined,
   warn: () => undefined,
   error: () => undefined,
   fatal: () => undefined,
-  child: () => noopLogger,
+  child: () => NOOP_LOGGER,
   flush: () => Promise.resolve(),
   shutdown: () => Promise.resolve(),
 };
@@ -138,7 +138,7 @@ describe("createLangChainTelemetryCallback", () => {
   it("emits metadata-only graph, model, and tool child diagnostics under the Agent Run span", async () => {
     // Given
     const telemetry = installTelemetryExporters();
-    const agentRunTelemetry = createAgentRunTelemetry({ logger: noopLogger });
+    const agentRunTelemetry = createAgentRunTelemetry({ logger: NOOP_LOGGER });
     const callback = createLangChainTelemetryCallback({
       instrumentationName: "@teach-everything/observability-test",
     });
@@ -225,23 +225,23 @@ describe("createLangChainTelemetryCallback", () => {
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.CHAIN,
       [SemanticConventions.AGENT_NAME]: "agent",
       [SemanticConventions.GRAPH_NODE_NAME]: "generate",
-      [langGraphStepAttribute]: 2,
-      [runStatusAttribute]: "ok",
+      [LANG_GRAPH_STEP_ATTRIBUTE]: 2,
+      [RUN_STATUS_ATTRIBUTE]: "ok",
     });
     expect(modelSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
       [SemanticConventions.LLM_PROVIDER]: "openai",
       [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-response",
       [SemanticConventions.LLM_TOKEN_COUNT_PROMPT]: 13,
       [SemanticConventions.LLM_TOKEN_COUNT_COMPLETION]: 21,
       [SemanticConventions.LLM_FINISH_REASON]: "stop",
-      [runStatusAttribute]: "ok",
+      [RUN_STATUS_ATTRIBUTE]: "ok",
     });
     expect(toolSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
       [SemanticConventions.TOOL_NAME]: "LookupTool",
-      [runStatusAttribute]: "ok",
+      [RUN_STATUS_ATTRIBUTE]: "ok",
     });
 
     const tokenMetric = findMetric(metricsData, "gen_ai.client.token.usage");
@@ -249,12 +249,12 @@ describe("createLangChainTelemetryCallback", () => {
       {
         [SemanticConventions.LLM_PROVIDER]: "openai",
         [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-response",
-        [tokenTypeAttribute]: "input",
+        [TOKEN_TYPE_ATTRIBUTE]: "input",
       },
       {
         [SemanticConventions.LLM_PROVIDER]: "openai",
         [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-response",
-        [tokenTypeAttribute]: "output",
+        [TOKEN_TYPE_ATTRIBUTE]: "output",
       },
     ]);
 
@@ -309,7 +309,7 @@ describe("createLangChainTelemetryCallback", () => {
     expect(toolSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
       [SemanticConventions.TOOL_NAME]: "lookup",
-      [runStatusAttribute]: "error",
+      [RUN_STATUS_ATTRIBUTE]: "error",
     });
 
     const durationMetric = findMetric(metricsData, "langchain.run.duration");
@@ -317,7 +317,7 @@ describe("createLangChainTelemetryCallback", () => {
     expect(durationMetric?.dataPoints[0]?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.TOOL,
       [SemanticConventions.TOOL_NAME]: "lookup",
-      [runStatusAttribute]: "error",
+      [RUN_STATUS_ATTRIBUTE]: "error",
     });
 
     const telemetryPayload = serializeTelemetryPayload(metricsData, spans);
@@ -370,20 +370,20 @@ describe("createLangChainTelemetryCallback", () => {
     expect(modelSpan?.events).toEqual([]);
     expect(modelSpan?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
       [SemanticConventions.LLM_PROVIDER]: "openai",
       [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-request",
-      [runStatusAttribute]: "ok",
+      [RUN_STATUS_ATTRIBUTE]: "ok",
     });
 
     const durationMetric = findMetric(metricsData, "langchain.run.duration");
     expect(durationMetric?.dataPoints).toHaveLength(1);
     expect(durationMetric?.dataPoints[0]?.attributes).toMatchObject({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
       [SemanticConventions.LLM_PROVIDER]: "openai",
       [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-request",
-      [runStatusAttribute]: "ok",
+      [RUN_STATUS_ATTRIBUTE]: "ok",
     });
 
     const telemetryPayload = serializeTelemetryPayload(metricsData, spans);

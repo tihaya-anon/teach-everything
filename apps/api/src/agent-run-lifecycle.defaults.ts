@@ -1,1 +1,1 @@
-export const defaultAgentRunCancellationConfirmationTimeoutMs = 10_000;
+export const DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS = 10_000;

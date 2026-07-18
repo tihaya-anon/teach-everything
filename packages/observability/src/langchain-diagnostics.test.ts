@@ -4,8 +4,8 @@ import {
 } from "@arizeai/openinference-semantic-conventions";
 import { describe, expect, it } from "vitest";
 import {
-  langGraphStepAttribute,
-  llmOperationAttribute,
+  LANG_GRAPH_STEP_ATTRIBUTE,
+  LLM_OPERATION_ATTRIBUTE,
   readLlmEndMetadata,
   readLlmTokenMetricAttributes,
   readRunStartMetadata,
@@ -37,7 +37,7 @@ describe("LangChain diagnostic metadata", () => {
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.CHAIN,
       [SemanticConventions.AGENT_NAME]: "agent",
       [SemanticConventions.GRAPH_NODE_NAME]: "generate",
-      [langGraphStepAttribute]: 2,
+      [LANG_GRAPH_STEP_ATTRIBUTE]: 2,
     });
     expect(runMetadata.metricAttributes).toEqual({
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.CHAIN,
@@ -60,7 +60,7 @@ describe("LangChain diagnostic metadata", () => {
 
     // When
     const runMetadata = readRunStartMetadata("llm", "ChatOpenAI", metadata, {
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
     });
 
     // Then
@@ -68,7 +68,7 @@ describe("LangChain diagnostic metadata", () => {
       [SemanticConventions.OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.LLM,
       [SemanticConventions.LLM_PROVIDER]: "openai",
       [SemanticConventions.LLM_MODEL_NAME]: "gpt-safe-request",
-      [llmOperationAttribute]: "chat",
+      [LLM_OPERATION_ATTRIBUTE]: "chat",
     });
     expect(runMetadata.metricAttributes).toEqual(runMetadata.spanAttributes);
     expect(JSON.stringify(runMetadata)).not.toContain("SENTINEL_PROMPT");

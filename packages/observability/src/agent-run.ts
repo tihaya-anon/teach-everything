@@ -43,12 +43,12 @@ export interface AgentRunTelemetryScope {
   finish(terminalOutcome: AgentRunTerminalOutcome): void;
 }
 
-const defaultInstrumentationName = "@teach-everything/observability/agent-run";
+const DEFAULT_INSTRUMENTATION_NAME = "@teach-everything/observability/agent-run";
 
-const agentRunOutcomeAttribute = `${SemanticConventions.METADATA}.agent_run.outcome` as const;
+const AGENT_RUN_OUTCOME_ATTRIBUTE = `${SemanticConventions.METADATA}.agent_run.outcome` as const;
 
 type AgentRunTerminalAttributes = {
-  [agentRunOutcomeAttribute]: AgentRunOutcome;
+  [AGENT_RUN_OUTCOME_ATTRIBUTE]: AgentRunOutcome;
   "error.type"?: AgentRunErrorClassification;
 };
 
@@ -68,7 +68,7 @@ const tryOr = <T>(operation: () => T, fallback: T): T => {
   }
 };
 
-const noopHistogram = {
+const NOOP_HISTOGRAM = {
   record: () => undefined,
 } as Histogram;
 
@@ -76,7 +76,7 @@ const terminalAttributes = (
   terminalOutcome: AgentRunTerminalOutcome,
 ): AgentRunTerminalAttributes => {
   const attributes: AgentRunTerminalAttributes = {
-    [agentRunOutcomeAttribute]: terminalOutcome.outcome,
+    [AGENT_RUN_OUTCOME_ATTRIBUTE]: terminalOutcome.outcome,
   };
 
   if (terminalOutcome.outcome === "failed") {
@@ -176,7 +176,7 @@ class OpenTelemetryAgentRunTelemetry implements AgentRunTelemetry {
   private readonly tracer: Tracer;
 
   public constructor(private readonly options: AgentRunTelemetryOptions) {
-    const instrumentationName = options.instrumentationName ?? defaultInstrumentationName;
+    const instrumentationName = options.instrumentationName ?? DEFAULT_INSTRUMENTATION_NAME;
     this.tracer = trace.getTracer(instrumentationName, options.instrumentationVersion);
     this.runDuration = tryOr(
       () =>
@@ -186,7 +186,7 @@ class OpenTelemetryAgentRunTelemetry implements AgentRunTelemetry {
             description: "Duration of an Agent Run",
             unit: "s",
           }),
-      noopHistogram,
+      NOOP_HISTOGRAM,
     );
   }
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Increment this only when the wire protocol changes incompatibly.
-export const agentRunProtocolVersion = 1 as const;
+export const AGENT_RUN_PROTOCOL_VERSION = 1 as const;
 
 export const agentRunOutcomeSchema = z.enum(["succeeded", "failed", "cancelled"]);
 
@@ -26,7 +26,7 @@ export const agentRunRequestSchema = z
 
 export const agentRunStartedEventSchema = z
   .object({
-    version: z.literal(agentRunProtocolVersion),
+    version: z.literal(AGENT_RUN_PROTOCOL_VERSION),
     type: z.literal("run.started"),
     agentRunId: z.string().refine((agentRunId) => agentRunId.trim().length > 0, {
       message: "Agent Run Identifier must not be empty",
@@ -36,7 +36,7 @@ export const agentRunStartedEventSchema = z
 
 export const agentRunMessageDeltaEventSchema = z
   .object({
-    version: z.literal(agentRunProtocolVersion),
+    version: z.literal(AGENT_RUN_PROTOCOL_VERSION),
     type: z.literal("message.delta"),
     text: z.string(),
   })
@@ -44,14 +44,14 @@ export const agentRunMessageDeltaEventSchema = z
 
 export const agentRunCompletedEventSchema = z
   .object({
-    version: z.literal(agentRunProtocolVersion),
+    version: z.literal(AGENT_RUN_PROTOCOL_VERSION),
     type: z.literal("run.completed"),
   })
   .strict();
 
 export const agentRunFailedEventSchema = z
   .object({
-    version: z.literal(agentRunProtocolVersion),
+    version: z.literal(AGENT_RUN_PROTOCOL_VERSION),
     type: z.literal("run.failed"),
     errorClassification: agentRunErrorClassificationSchema,
   })
@@ -59,7 +59,7 @@ export const agentRunFailedEventSchema = z
 
 export const agentRunCancelledEventSchema = z
   .object({
-    version: z.literal(agentRunProtocolVersion),
+    version: z.literal(AGENT_RUN_PROTOCOL_VERSION),
     type: z.literal("run.cancelled"),
   })
   .strict();

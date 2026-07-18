@@ -12,18 +12,18 @@ const createUserMessage = (text: string, id: string): ThreadMessage => ({
   metadata: { custom: {} },
 });
 
-const messages = [
+const MESSAGES = [
   createUserMessage("First question.", "message_01"),
   createUserMessage("  Explain lexical scope.  ", "message_03"),
 ] satisfies ThreadMessage[];
 
 const createRunOptions = (signal: AbortSignal) =>
   ({
-    messages,
+    messages: MESSAGES,
     runConfig: {},
     abortSignal: signal,
     context: {},
-    unstable_getMessage: () => messages[0]!,
+    unstable_getMessage: () => MESSAGES[0]!,
   }) satisfies ChatModelRunOptions;
 
 const streamFromText = (body: string) => {

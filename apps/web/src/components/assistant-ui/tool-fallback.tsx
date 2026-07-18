@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 
 const ANIMATION_DURATION = 200;
 
-const pressable = "active:scale-[0.98]";
+const PRESSABLE = "active:scale-[0.98]";
 
 export type ToolFallbackRootProps = Omit<
   React.ComponentProps<typeof Collapsible>,
@@ -75,7 +75,7 @@ const ToolFallbackRoot = ({
 
 type ToolStatus = ToolCallMessagePartStatus["type"];
 
-const statusIconMap: Record<ToolStatus, React.ElementType> = {
+const STATUS_ICON_MAP: Record<ToolStatus, React.ElementType> = {
   running: LoaderIcon,
   complete: CheckIcon,
   incomplete: XCircleIcon,
@@ -121,7 +121,7 @@ const ToolFallbackTrigger = ({
   const isRunning = statusType === "running";
   const isCancelled = status?.type === "incomplete" && status.reason === "cancelled";
 
-  const Icon = statusIconMap[statusType];
+  const Icon = STATUS_ICON_MAP[statusType];
   const label = isCancelled ? "Cancelled tool" : "Used tool";
 
   return (
@@ -396,7 +396,7 @@ const ToolFallbackApproval = ({
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            className={pressable}
+            className={PRESSABLE}
             onClick={() => respondWithOption(confirming)}
             disabled={submitted}
           >
@@ -405,7 +405,7 @@ const ToolFallbackApproval = ({
           <Button
             size="sm"
             variant="outline"
-            className={pressable}
+            className={PRESSABLE}
             onClick={() => setConfirmingId(null)}
             disabled={submitted}
           >
@@ -433,7 +433,7 @@ const ToolFallbackApproval = ({
             key={option.id}
             size="sm"
             variant={option === allowOptions[0] ? "default" : "outline"}
-            className={pressable}
+            className={PRESSABLE}
             onClick={() => handleOption(option)}
             disabled={submitted}
           >
@@ -444,7 +444,7 @@ const ToolFallbackApproval = ({
           <Button
             size="sm"
             variant="outline"
-            className={pressable}
+            className={PRESSABLE}
             onClick={() => respond(false)}
             disabled={submitted}
           >
@@ -461,13 +461,13 @@ const ToolFallbackApproval = ({
       className={cn("aui-tool-fallback-approval flex items-center gap-2 pt-1", className)}
       {...props}
     >
-      <Button size="sm" className={pressable} onClick={() => respond(true)} disabled={submitted}>
+      <Button size="sm" className={PRESSABLE} onClick={() => respond(true)} disabled={submitted}>
         Allow
       </Button>
       <Button
         size="sm"
         variant="outline"
-        className={pressable}
+        className={PRESSABLE}
         onClick={() => respond(false)}
         disabled={submitted}
       >

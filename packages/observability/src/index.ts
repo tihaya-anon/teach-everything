@@ -1,6 +1,6 @@
 export {
   createLogger,
-  logLevels,
+  LOG_LEVELS,
   type LogAttributes,
   type LogAttributeValue,
   type LogContext,

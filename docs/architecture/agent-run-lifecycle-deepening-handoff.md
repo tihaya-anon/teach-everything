@@ -21,7 +21,7 @@ export type AgentRunLifecycle = {
 - `apps/api/src/routes/agent-runs.ts` remains a transport adapter. It owns Hono validation, response headers, `ReadableStream`, and NDJSON encoding.
 - The lifecycle module owns Agent Run terminal selection and telemetry finishing. Route code must not reconstruct telemetry outcomes from emitted events.
 - Cancellation confirmation timeout is configurable at the lifecycle module seam, with the default exported from `apps/api/src/agent-run-lifecycle.defaults.ts`.
-- The default export name is `defaultAgentRunCancellationConfirmationTimeoutMs`.
+- The default export name is `DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS`.
 - Lifecycle behavior tests move to `apps/api/src/agent-run-lifecycle.test.ts`.
 - Route tests shrink to adapter behavior: validation, headers/content type, NDJSON encoding, request-signal wiring, `ReadableStream.cancel()` wiring, and one real Node HTTP abort integration test.
 - A new ADR records the broader rule: telemetry decisions stay inside the logic module that owns the behavior unless an external seam requires transporting them.

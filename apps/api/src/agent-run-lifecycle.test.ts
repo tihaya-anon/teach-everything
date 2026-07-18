@@ -12,7 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentRunLifecycle } from "./agent-run-lifecycle";
 
-const input: AgentRunRequest = { message: "Explain closures." };
+const INPUT: AgentRunRequest = { message: "Explain closures." };
 
 type RecordedTelemetry = {
   cancellationRequests: number;
@@ -139,7 +139,7 @@ const createLifecycle = (
     lifecycle: createAgentRunLifecycle({
       agentRunExecutor,
       agentRunId: options.agentRunId ?? "ar_lifecycle",
-      input,
+      input: INPUT,
       signal: options.signal ?? new AbortController().signal,
       telemetryScope: telemetry.scope,
       ...(options.cancellationConfirmationTimeoutMs === undefined
