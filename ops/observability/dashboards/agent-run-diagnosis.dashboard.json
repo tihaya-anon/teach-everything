@@ -42,10 +42,6 @@
         "footer": { "show": false, "reducer": [], "countRows": false },
         "cellHeight": "sm"
       },
-      "fieldConfig": {
-        "defaults": { "custom": { "align": "auto", "inspect": false } },
-        "overrides": []
-      },
       "id": 1,
       "title": "Selected Agent Run Summary",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
@@ -56,31 +52,15 @@
           "refId": "A",
           "datasource": { "type": "tempo", "uid": "tempo" },
           "queryType": "traceql",
+          "tableType": "traces",
           "query": "{ span:name = \"agent.run\" && span.\"session.id\" = \"$agent_run_id\" } | select(span:name, trace:id, span:duration, span.\"metadata.agent_run.outcome\", span.\"error.type\")",
           "limit": 20
         }
-      ]
-    },
-    {
-      "type": "traces",
-      "transparent": false,
-      "repeatDirection": "h",
-      "id": 2,
-      "title": "Complete Trace",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "options": {},
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "targets": [
-        {
-          "filters": [],
-          "refId": "A",
-          "datasource": { "type": "tempo", "uid": "tempo" },
-          "queryType": "traceql",
-          "query": "{ span:name = \"agent.run\" && span.\"session.id\" = \"$agent_run_id\" }",
-          "limit": 20
-        }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "inspect": false } },
+        "overrides": []
+      }
     },
     {
       "type": "table",
@@ -93,9 +73,36 @@
         "footer": { "show": false, "reducer": [], "countRows": false },
         "cellHeight": "sm"
       },
+      "id": 2,
+      "title": "Complete Trace",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "filters": [],
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "tableType": "spans",
+          "query": "{ span:name = \"agent.run\" && span.\"session.id\" = \"$agent_run_id\" } &>> { true } | select(span:name, trace:id, span:duration, span:status, span.\"openinference.span.kind\", span.\"graph.node.name\", span.\"tool.name\", span.\"llm.provider\", span.\"llm.model_name\", span.\"llm.token_count.prompt\", span.\"llm.token_count.completion\", span.\"llm.finish_reason\", span.\"session.id\", span.\"metadata.agent_run.outcome\", span.\"error.type\")",
+          "limit": 20
+        }
+      ],
       "fieldConfig": {
         "defaults": { "custom": { "align": "auto", "inspect": false } },
         "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "transparent": false,
+      "repeatDirection": "h",
+      "options": {
+        "frameIndex": 0,
+        "showHeader": true,
+        "showTypeIcons": false,
+        "footer": { "show": false, "reducer": [], "countRows": false },
+        "cellHeight": "sm"
       },
       "id": 3,
       "title": "Slow Model and Tool Operations",
@@ -107,10 +114,15 @@
           "refId": "A",
           "datasource": { "type": "tempo", "uid": "tempo" },
           "queryType": "traceql",
+          "tableType": "spans",
           "query": "{ span:name = \"agent.run\" && span.\"session.id\" = \"$agent_run_id\" } >> { span.\"openinference.span.kind\" =~ \"LLM|TOOL\" && span:duration > 1s } | select(span:name, trace:id, span:duration, span:status, span.\"openinference.span.kind\", span.\"graph.node.name\", span.\"tool.name\", span.\"llm.provider\", span.\"llm.model_name\", span.\"llm.token_count.prompt\", span.\"llm.token_count.completion\", span.\"llm.finish_reason\")",
           "limit": 20
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "inspect": false } },
+        "overrides": []
+      }
     },
     {
       "type": "table",
@@ -123,10 +135,6 @@
         "footer": { "show": false, "reducer": [], "countRows": false },
         "cellHeight": "sm"
       },
-      "fieldConfig": {
-        "defaults": { "custom": { "align": "auto", "inspect": false } },
-        "overrides": []
-      },
       "id": 4,
       "title": "Failed Model and Tool Operations",
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 27 },
@@ -137,10 +145,15 @@
           "refId": "A",
           "datasource": { "type": "tempo", "uid": "tempo" },
           "queryType": "traceql",
+          "tableType": "spans",
           "query": "{ span:name = \"agent.run\" && span.\"session.id\" = \"$agent_run_id\" } >> { span.\"openinference.span.kind\" =~ \"LLM|TOOL\" && span:status = error } | select(span:name, trace:id, span:duration, span:status, span.\"openinference.span.kind\", span.\"graph.node.name\", span.\"tool.name\", span.\"llm.provider\", span.\"llm.model_name\", span.\"llm.token_count.prompt\", span.\"llm.token_count.completion\", span.\"llm.finish_reason\")",
           "limit": 20
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "inspect": false } },
+        "overrides": []
+      }
     },
     {
       "type": "logs",

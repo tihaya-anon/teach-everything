@@ -55,6 +55,8 @@ const DASHBOARD_VERSION = 1;
 
 const SCHEMA_VERSION = 42;
 
+type TempoTableType = "spans" | "traces";
+
 const tempoDatasource = (): DatasourceReference => ({
   type: EXPECTED_AGENT_RUN_DIAGNOSIS_DATASOURCES.tempo.type,
   uid: EXPECTED_AGENT_RUN_DIAGNOSIS_DATASOURCES.tempo.uid,
@@ -80,7 +82,7 @@ const textVariable = (): TextVariableKind => ({
   },
 });
 
-const tempoQuery = (query: string): DataQueryKind => ({
+const tempoQuery = (query: string, tableType: TempoTableType): DataQueryKind => ({
   kind: "DataQuery",
   group: "tempo",
   version: "v1",
@@ -89,6 +91,7 @@ const tempoQuery = (query: string): DataQueryKind => ({
     refId: "A",
     datasource: tempoDatasource(),
     queryType: "traceql",
+    tableType,
     query,
     limit: 20,
   },
@@ -147,19 +150,6 @@ const tableVizConfig = (): VizConfigKind => ({
           inspect: false,
         },
       },
-      overrides: [],
-    },
-  },
-});
-
-const tracesVizConfig = (): VizConfigKind => ({
-  kind: "VizConfig",
-  group: "traces",
-  version: "v1",
-  spec: {
-    options: {},
-    fieldConfig: {
-      defaults: {},
       overrides: [],
     },
   },
@@ -229,25 +219,25 @@ const agentRunDiagnosisDashboardV2 = (): DashboardV2 => ({
     selectedRunSummary: panel({
       id: 1,
       title: "Selected Agent Run Summary",
-      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.selectedRunSummary),
+      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.selectedRunSummary, "traces"),
       vizConfig: tableVizConfig(),
     }),
     completeTrace: panel({
       id: 2,
       title: "Complete Trace",
-      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.completeTrace),
-      vizConfig: tracesVizConfig(),
+      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.completeTrace, "spans"),
+      vizConfig: tableVizConfig(),
     }),
     slowOperations: panel({
       id: 3,
       title: "Slow Model and Tool Operations",
-      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.slowOperations),
+      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.slowOperations, "spans"),
       vizConfig: tableVizConfig(),
     }),
     failedOperations: panel({
       id: 4,
       title: "Failed Model and Tool Operations",
-      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.failedOperations),
+      query: tempoQuery(AGENT_RUN_DIAGNOSIS_QUERIES.failedOperations, "spans"),
       vizConfig: tableVizConfig(),
     }),
     correlatedLogs: panel({
