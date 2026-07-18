@@ -63,6 +63,7 @@
           {
             "matcher": { "id": "byName", "options": "traceID" },
             "properties": [
+              { "id": "links", "value": null },
               {
                 "id": "links",
                 "value": [
@@ -110,6 +111,7 @@
           {
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
+              { "id": "links", "value": null },
               {
                 "id": "links",
                 "value": [
@@ -157,6 +159,7 @@
           {
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
+              { "id": "links", "value": null },
               {
                 "id": "links",
                 "value": [
@@ -204,6 +207,7 @@
           {
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
+              { "id": "links", "value": null },
               {
                 "id": "links",
                 "value": [

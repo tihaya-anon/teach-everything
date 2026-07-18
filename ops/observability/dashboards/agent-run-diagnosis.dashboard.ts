@@ -178,6 +178,10 @@ const fieldLinkOverride = (
   properties: [
     {
       id: "links",
+      value: null,
+    },
+    {
+      id: "links",
       value: [
         {
           title: "Open trace",

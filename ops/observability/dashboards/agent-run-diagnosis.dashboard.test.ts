@@ -50,12 +50,33 @@ const fieldLink = (panel: JsonObject, fieldName: string) => {
       typeof candidate === "object" &&
       candidate !== null &&
       !Array.isArray(candidate) &&
-      candidate.id === "links",
+      candidate.id === "links" &&
+      Array.isArray(candidate.value),
   ) as JsonObject | undefined;
   const links = linksProperty?.value;
   if (!Array.isArray(links) || links.length === 0) throw new Error(`${fieldName} must have a link`);
 
   return links[0] as JsonObject;
+};
+
+const fieldLinkProperties = (panel: JsonObject, fieldName: string) => {
+  const fieldConfig = panel.fieldConfig as JsonObject;
+  const overrides = fieldConfig.overrides;
+  if (!Array.isArray(overrides))
+    throw new Error(`Panel ${String(panel.title)} must have overrides`);
+
+  const override = overrides.find(
+    (candidate) =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      !Array.isArray(candidate) &&
+      (candidate.matcher as JsonObject).options === fieldName,
+  ) as JsonObject | undefined;
+  if (override === undefined || !Array.isArray(override.properties)) {
+    throw new Error(`Missing ${fieldName} link properties`);
+  }
+
+  return override.properties;
 };
 
 describe("Agent Run Diagnosis dashboard", () => {
@@ -120,6 +141,13 @@ describe("Agent Run Diagnosis dashboard", () => {
     for (const link of [traceLink, completeTraceSpanLink, failedOperationSpanLink]) {
       expect(link.url).toContain("${__from}");
       expect(link.url).toContain("${__to}");
+    }
+    for (const [panel, fieldName] of [
+      [selectedRunSummary, "traceID"],
+      [completeTrace, "spanID"],
+      [failedOperations, "spanID"],
+    ] as const) {
+      expect(fieldLinkProperties(panel, fieldName)[0]).toEqual({ id: "links", value: null });
     }
   });
 });
