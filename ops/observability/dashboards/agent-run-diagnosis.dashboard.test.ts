@@ -141,13 +141,20 @@ describe("Agent Run Diagnosis dashboard", () => {
     for (const link of [traceLink, completeTraceSpanLink, failedOperationSpanLink]) {
       expect(link.url).toContain("${__from}");
       expect(link.url).toContain("${__to}");
+      expect(link.title).toBe("${__value.raw} ↗");
+      expect(link.targetBlank).toBe(true);
     }
     for (const [panel, fieldName] of [
       [selectedRunSummary, "traceID"],
       [completeTrace, "spanID"],
       [failedOperations, "spanID"],
     ] as const) {
-      expect(fieldLinkProperties(panel, fieldName)[0]).toEqual({ id: "links", value: null });
+      const properties = fieldLinkProperties(panel, fieldName);
+      expect(properties[0]).toEqual({ id: "links", value: null });
+      expect(properties).toContainEqual({
+        id: "custom.cellOptions",
+        value: { type: "data-links" },
+      });
     }
   });
 });

@@ -64,13 +64,14 @@
             "matcher": { "id": "byName", "options": "traceID" },
             "properties": [
               { "id": "links", "value": null },
+              { "id": "custom.cellOptions", "value": { "type": "data-links" } },
               {
                 "id": "links",
                 "value": [
                   {
-                    "title": "Open trace",
+                    "title": "${__value.raw} ↗",
                     "url": "/explore?schemaVersion=1&panes=%7B%22agentRunTrace%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22query%22%3A%22${__value.raw}%22%2C%22queryType%22%3A%22traceql%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22refId%22%3A%22A%22%2C%22limit%22%3A20%2C%22tableType%22%3A%22traces%22%2C%22metricsQueryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%2C%22compact%22%3Afalse%7D%7D",
-                    "targetBlank": false
+                    "targetBlank": true
                   }
                 ]
               }
@@ -112,13 +113,14 @@
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
               { "id": "links", "value": null },
+              { "id": "custom.cellOptions", "value": { "type": "data-links" } },
               {
                 "id": "links",
                 "value": [
                   {
-                    "title": "Open trace",
+                    "title": "${__value.raw} ↗",
                     "url": "/explore?schemaVersion=1&panes=%7B%22agentRunTrace%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22query%22%3A%22${__data.fields.traceIdHidden}%22%2C%22queryType%22%3A%22traceql%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22refId%22%3A%22A%22%2C%22limit%22%3A20%2C%22tableType%22%3A%22traces%22%2C%22metricsQueryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%2C%22panelsState%22%3A%7B%22trace%22%3A%7B%22spanId%22%3A%22${__value.raw}%22%7D%7D%2C%22compact%22%3Afalse%7D%7D",
-                    "targetBlank": false
+                    "targetBlank": true
                   }
                 ]
               }
@@ -160,13 +162,14 @@
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
               { "id": "links", "value": null },
+              { "id": "custom.cellOptions", "value": { "type": "data-links" } },
               {
                 "id": "links",
                 "value": [
                   {
-                    "title": "Open trace",
+                    "title": "${__value.raw} ↗",
                     "url": "/explore?schemaVersion=1&panes=%7B%22agentRunTrace%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22query%22%3A%22${__data.fields.traceIdHidden}%22%2C%22queryType%22%3A%22traceql%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22refId%22%3A%22A%22%2C%22limit%22%3A20%2C%22tableType%22%3A%22traces%22%2C%22metricsQueryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%2C%22panelsState%22%3A%7B%22trace%22%3A%7B%22spanId%22%3A%22${__value.raw}%22%7D%7D%2C%22compact%22%3Afalse%7D%7D",
-                    "targetBlank": false
+                    "targetBlank": true
                   }
                 ]
               }
@@ -208,13 +211,14 @@
             "matcher": { "id": "byName", "options": "spanID" },
             "properties": [
               { "id": "links", "value": null },
+              { "id": "custom.cellOptions", "value": { "type": "data-links" } },
               {
                 "id": "links",
                 "value": [
                   {
-                    "title": "Open trace",
+                    "title": "${__value.raw} ↗",
                     "url": "/explore?schemaVersion=1&panes=%7B%22agentRunTrace%22%3A%7B%22datasource%22%3A%22tempo%22%2C%22queries%22%3A%5B%7B%22query%22%3A%22${__data.fields.traceIdHidden}%22%2C%22queryType%22%3A%22traceql%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22tempo%22%7D%2C%22refId%22%3A%22A%22%2C%22limit%22%3A20%2C%22tableType%22%3A%22traces%22%2C%22metricsQueryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%2C%22panelsState%22%3A%7B%22trace%22%3A%7B%22spanId%22%3A%22${__value.raw}%22%7D%7D%2C%22compact%22%3Afalse%7D%7D",
-                    "targetBlank": false
+                    "targetBlank": true
                   }
                 ]
               }

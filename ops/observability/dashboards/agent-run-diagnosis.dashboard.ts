@@ -1,4 +1,8 @@
-import { LogsDedupStrategy, TableCellHeight } from "@grafana/grafana-foundation-sdk/common";
+import {
+  LogsDedupStrategy,
+  TableCellDisplayMode,
+  TableCellHeight,
+} from "@grafana/grafana-foundation-sdk/common";
 import {
   DashboardCursorSync,
   VariableHide,
@@ -181,12 +185,18 @@ const fieldLinkOverride = (
       value: null,
     },
     {
+      id: "custom.cellOptions",
+      value: {
+        type: TableCellDisplayMode.DataLinks,
+      },
+    },
+    {
       id: "links",
       value: [
         {
-          title: "Open trace",
+          title: `${GRAFANA_FIELD_VALUE} ↗`,
           url: traceExploreUrl(traceLink),
-          targetBlank: false,
+          targetBlank: true,
         },
       ],
     },
