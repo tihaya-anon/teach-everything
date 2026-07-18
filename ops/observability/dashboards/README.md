@@ -19,5 +19,5 @@ Regenerate the committed artifact after intentional dashboard changes:
 pnpm dashboards:agent-run-diagnosis:generate
 ```
 
-Dashboard tests compare the generated model with the committed JSON structurally,
-so tests detect stale artifacts without mutating files.
+The committed JSON is regenerated explicitly; dashboard correctness is verified
+manually in Grafana as part of observability acceptance work.
