@@ -51,3 +51,11 @@ _Avoid_: Product behavior, test case
 **Diagnostic Telemetry**:
 Metadata emitted about an Agent Run for diagnosis, including identifiers, timing, model or provider names, token counts, tool names, outcomes, error classifications, and correlated structured logs. It excludes user and model content by default.
 _Avoid_: Run content, debug payload
+
+**Agent Graph Spec**:
+A versioned declarative description of an agent graph's topology and configurable behavior, including node kinds, edges, routing conditions, model settings, tool references, and prompt references. It is the artifact promoted between experiments and production; executable adapters live in the runtime that consumes it.
+_Avoid_: LangGraph snapshot, compiled graph, business code
+
+**Graph Spec Hash**:
+A stable content-derived identifier for one exact Agent Graph Spec and its referenced behavior inputs. It is the canonical key for reproducing, comparing, and promoting graph behavior across trials and Agent Runs.
+_Avoid_: Graph version, trace ID, run ID
