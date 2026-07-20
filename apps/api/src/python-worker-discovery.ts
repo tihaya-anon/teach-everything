@@ -36,7 +36,7 @@ const parseWorkerCommand = (command: string | undefined): readonly [string, ...s
   let parsedCommand: unknown;
   try {
     parsedCommand = JSON.parse(command) as unknown;
-  } catch (error) {
+  } catch {
     throw new PythonWorkerDiscoveryConfigError(
       "AGENT_RUN_PYTHON_WORKER_COMMAND must be a JSON array of command arguments",
     );
