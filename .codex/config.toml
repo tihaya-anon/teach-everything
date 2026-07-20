@@ -61,3 +61,9 @@ bearer_token_env_var = "GITHUB_PAT_TOKEN"
 
 [mcp_servers.github.tools.issue_write]
 approval_mode = "approve"
+
+[mcp_servers.github.tools.add_issue_comment]
+approval_mode = "approve"
+
+[mcp_servers.github.tools.sub_issue_write]
+approval_mode = "approve"
