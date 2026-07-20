@@ -46,6 +46,7 @@ approval_mode = "approve"
 command = "uvx"
 args = ["mcp-grafana"]
 env_vars = ["GRAFANA_SERVICE_ACCOUNT_TOKEN"]
+startup_timeout_sec = 120
 
 [mcp_servers.grafana.env]
 GRAFANA_URL = "http://localhost:3000"
