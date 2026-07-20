@@ -100,6 +100,14 @@ describe("consumeAgentRunStream", () => {
     ],
     ["an unknown event type", '{"version":1,"type":"tool.started","toolName":"search"}\n'],
     [
+      "a worker-only progress event",
+      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"progress.update","scope":"task","label":"load-graph","status":"completed"}\n{"version":1,"type":"run.completed"}\n',
+    ],
+    [
+      "a raw LangGraph chunk",
+      '{"version":1,"type":"run.started","agentRunId":"ar_test_02"}\n{"version":1,"type":"raw.langgraph.chunk","chunk":{"content":"private"}}\n{"version":1,"type":"run.completed"}\n',
+    ],
+    [
       "a stream that does not start with run.started",
       '{"version":1,"type":"message.delta","text":"started late"}\n{"version":1,"type":"run.completed"}\n',
     ],

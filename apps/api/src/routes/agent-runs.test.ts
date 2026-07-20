@@ -268,7 +268,7 @@ describe("POST /api/agent-runs", () => {
     ]);
   });
 
-  it("runs the Agent Run route through the Python worker adapter", async () => {
+  it("runs a Python-worker-style event sequence through the Agent Run route", async () => {
     // Given
     const api = createApp({
       agentRunExecutor: createPythonWorkerExecutorForScript(`
@@ -278,6 +278,7 @@ describe("POST /api/agent-runs", () => {
           const command = JSON.parse(line);
           if (command.type !== "run.start") continue;
           console.log(JSON.stringify({ version: 1, type: "run.started", agentRunId: command.agentRunId }));
+          console.log(JSON.stringify({ version: 1, type: "progress.update", scope: "task", label: "load-graph", status: "completed" }));
           console.log(JSON.stringify({ version: 1, type: "message.delta", text: command.input.message }));
           console.log(JSON.stringify({ version: 1, type: "run.completed" }));
         }

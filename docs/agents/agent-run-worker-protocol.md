@@ -72,6 +72,23 @@ Progress events must not expose raw LangGraph chunk shapes, prompts, provider pa
 traces, or other diagnostic-private data. Detailed diagnostics belong in OpenTelemetry and
 OpenInference telemetry, not in the browser-facing product protocol.
 
+## Browser-Facing Agent Run Stream
+
+The browser-facing stream is narrower than the worker event stream. Its stable UI contract is:
+
+- `run.started`: binds the response body to the gateway-assigned `agentRunId`.
+- `message.delta`: carries product response text only.
+- `run.completed`: terminal success.
+- `run.failed`: terminal failure with sanitized `errorClassification`.
+- `run.cancelled`: terminal cancellation.
+
+The TS API gateway owns translation from worker events to this stream. In protocol version `1`,
+worker `run.started` events are consumed by the gateway, and `progress.update` events are
+intentionally suppressed because the current frontend has no progress UI contract. Raw LangGraph
+chunks, prompts, provider payloads, stack traces, and diagnostic-private metadata must never be
+forwarded to the browser stream. If they reach the frontend stream consumer, they are protocol
+violations.
+
 ## Ownership
 
 - This repository owns `packages/shared/src/schemas/agent-run-worker.ts`, the TS API gateway, and
@@ -122,9 +139,9 @@ Bump `AGENT_RUN_WORKER_PROTOCOL_VERSION` for incompatible changes, including:
 - Changing Runtime Profile or Agent Behavior Version enforcement in a way that changes acceptance
   of previously valid `run.start` commands.
 
-Until #19 adds a concrete adapter handshake, compatibility is checked per message by strict schema
-validation. The first unsupported command or worker event should fail the run with a sanitized
-`run.failed` event rather than leaking worker internals.
+Compatibility is checked per message by strict schema validation. The first unsupported command or
+worker event should fail the run with a sanitized `run.failed` event rather than leaking worker
+internals.
 
 ## Migration Order
 
