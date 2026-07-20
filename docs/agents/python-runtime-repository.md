@@ -48,3 +48,23 @@ workspace/
 ```
 
 The exact discovery mechanism for the TS API to invoke the Python worker is tracked separately.
+
+## TS API Discovery
+
+The TS API discovers a local Python worker checkout through process discovery settings, not Runtime
+Profile policy:
+
+- `AGENT_RUN_PYTHON_WORKER_REPO_PATH`: path to the checked-out `agent-runtime-python` repository.
+  Relative paths resolve from the API startup working directory.
+- `AGENT_RUN_PYTHON_WORKER_COMMAND`: optional JSON array of command arguments. Defaults to
+  `["python3","-m","agent_runtime_python.worker"]`.
+
+For the sibling layout above, run the API from `agent-workbench` with:
+
+```bash
+AGENT_RUN_PYTHON_WORKER_REPO_PATH=../agent-runtime-python pnpm --filter @teach-everything/api dev
+```
+
+The API validates the selected path and command at startup. When #19 adds the subprocess adapter,
+it should run the command in `AGENT_RUN_PYTHON_WORKER_REPO_PATH` with `PYTHONPATH` set to the
+checkout's `src` directory.
