@@ -140,7 +140,8 @@ describe("agentBehaviorVersionSchema", () => {
     "sourceRevision",
   ] as const)("rejects a tuple missing the %s dimension", (dimension) => {
     // Given
-    const { [dimension]: _missingDimension, ...behaviorVersion } = completeBehaviorVersion;
+    const behaviorVersion: Partial<typeof completeBehaviorVersion> = { ...completeBehaviorVersion };
+    delete behaviorVersion[dimension];
 
     // When
     const result = agentBehaviorVersionSchema.safeParse(behaviorVersion);
