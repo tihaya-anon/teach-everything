@@ -8,13 +8,19 @@ import {
   metrics,
   SpanStatusCode,
   trace,
+  type Attributes,
   type Context,
   type Histogram,
   type Span,
   type Tracer,
 } from "@opentelemetry/api";
-import type { AgentRunErrorClassification, AgentRunOutcome } from "@teach-everything/shared";
-import type { Logger } from "./logger";
+import type {
+  AgentRunErrorClassification,
+  AgentRunOutcome,
+  DevelopmentAgentBehaviorVersion,
+  StrictAgentBehaviorVersion,
+} from "@teach-everything/shared";
+import type { LogAttributes, Logger } from "./logger";
 
 export type { AgentRunErrorClassification, AgentRunOutcome } from "@teach-everything/shared";
 
@@ -27,6 +33,13 @@ export type AgentRunTerminalOutcome =
       outcome: "failed";
     };
 
+export type AgentRunAcceptedTelemetry = {
+  agentBehaviorVersion: StrictAgentBehaviorVersion | DevelopmentAgentBehaviorVersion;
+  comparable: boolean;
+  promotable: boolean;
+  runtimeProfileId: string;
+};
+
 export type AgentRunTelemetryOptions = {
   instrumentationName?: string;
   instrumentationVersion?: string;
@@ -38,6 +51,7 @@ export interface AgentRunTelemetry {
 }
 
 export interface AgentRunTelemetryScope {
+  recordAccepted(acceptedTelemetry: AgentRunAcceptedTelemetry): void;
   recordCancellationRequested(): void;
   runInContext<T>(operation: () => T): T;
   finish(terminalOutcome: AgentRunTerminalOutcome): void;
@@ -46,6 +60,26 @@ export interface AgentRunTelemetryScope {
 const DEFAULT_INSTRUMENTATION_NAME = "@teach-everything/observability/agent-run";
 
 const AGENT_RUN_OUTCOME_ATTRIBUTE = `${SemanticConventions.METADATA}.agent_run.outcome` as const;
+const AGENT_RUN_COMPARABLE_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_run.comparable` as const;
+const AGENT_RUN_PROMOTABLE_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_run.promotable` as const;
+const AGENT_BEHAVIOR_GRAPH_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.graph` as const;
+const AGENT_BEHAVIOR_STATE_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.state` as const;
+const AGENT_BEHAVIOR_ACTION_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.action` as const;
+const AGENT_BEHAVIOR_PROMPT_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.prompt` as const;
+const AGENT_BEHAVIOR_TOOL_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.tool` as const;
+const AGENT_BEHAVIOR_MODEL_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.model` as const;
+const AGENT_BEHAVIOR_TRIAL_PARAMETER_ATTRIBUTE =
+  `${SemanticConventions.METADATA}.agent_behavior_version.trial_parameter` as const;
+const RUNTIME_PROFILE_ID_ATTRIBUTE = `${SemanticConventions.METADATA}.runtime_profile.id` as const;
+const SOURCE_REVISION_ATTRIBUTE = `${SemanticConventions.METADATA}.source_revision` as const;
 
 type AgentRunTerminalAttributes = {
   [AGENT_RUN_OUTCOME_ATTRIBUTE]: AgentRunOutcome;
@@ -86,7 +120,47 @@ const terminalAttributes = (
   return attributes;
 };
 
+const setIfPresent = (
+  attributes: LogAttributes,
+  attributeName: string,
+  value: string | undefined,
+) => {
+  if (value !== undefined) attributes[attributeName] = value;
+};
+
+const acceptedTelemetryAttributes = ({
+  agentBehaviorVersion,
+  comparable,
+  promotable,
+  runtimeProfileId,
+}: AgentRunAcceptedTelemetry): LogAttributes => {
+  const attributes: LogAttributes = {
+    [AGENT_RUN_COMPARABLE_ATTRIBUTE]: comparable,
+    [AGENT_RUN_PROMOTABLE_ATTRIBUTE]: promotable,
+    [RUNTIME_PROFILE_ID_ATTRIBUTE]: runtimeProfileId,
+  };
+
+  setIfPresent(attributes, AGENT_BEHAVIOR_GRAPH_ATTRIBUTE, agentBehaviorVersion.graph);
+  setIfPresent(attributes, AGENT_BEHAVIOR_STATE_ATTRIBUTE, agentBehaviorVersion.state);
+  setIfPresent(attributes, AGENT_BEHAVIOR_ACTION_ATTRIBUTE, agentBehaviorVersion.action);
+  setIfPresent(attributes, AGENT_BEHAVIOR_PROMPT_ATTRIBUTE, agentBehaviorVersion.prompt);
+  setIfPresent(attributes, AGENT_BEHAVIOR_TOOL_ATTRIBUTE, agentBehaviorVersion.tool);
+  setIfPresent(attributes, AGENT_BEHAVIOR_MODEL_ATTRIBUTE, agentBehaviorVersion.model);
+  setIfPresent(
+    attributes,
+    AGENT_BEHAVIOR_TRIAL_PARAMETER_ATTRIBUTE,
+    agentBehaviorVersion.trialParameter,
+  );
+  setIfPresent(attributes, SOURCE_REVISION_ATTRIBUTE, agentBehaviorVersion.sourceRevision);
+
+  return attributes;
+};
+
 class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
+  private acceptedAttributes: LogAttributes = {};
+
+  private accepted = false;
+
   private cancellationRequested = false;
 
   private finished = false;
@@ -104,17 +178,32 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
     return context.with(this.runContext, operation);
   }
 
+  public recordAccepted(acceptedTelemetry: AgentRunAcceptedTelemetry) {
+    if (this.finished || this.accepted) return;
+    this.accepted = true;
+    this.acceptedAttributes = acceptedTelemetryAttributes(acceptedTelemetry);
+
+    this.runInContext(() => {
+      runDiagnosticTelemetrySafely(() => {
+        this.span.setAttributes(this.acceptedAttributes as Attributes);
+      });
+      runDiagnosticTelemetrySafely(() => {
+        this.runLogger().info("Agent Run accepted", {
+          eventName: "agent.run.accepted",
+        });
+      });
+    });
+  }
+
   public recordCancellationRequested() {
     if (this.finished || this.cancellationRequested) return;
     this.cancellationRequested = true;
 
     this.runInContext(() => {
       runDiagnosticTelemetrySafely(() => {
-        this.logger
-          .child({ [SemanticConventions.SESSION_ID]: this.agentRunId })
-          .info("Agent Run cancellation requested", {
-            eventName: "agent.run.cancellation_requested",
-          });
+        this.runLogger().info("Agent Run cancellation requested", {
+          eventName: "agent.run.cancellation_requested",
+        });
       });
     });
   }
@@ -125,11 +214,15 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
     this.finished = true;
 
     const attributes = terminalAttributes(terminalOutcome);
+    const logAndSpanAttributes = {
+      ...this.acceptedAttributes,
+      ...attributes,
+    };
     const durationSeconds = (performance.now() - this.startedAt) / 1_000;
 
     this.runInContext(() => {
       runDiagnosticTelemetrySafely(() => {
-        this.span.setAttributes(attributes);
+        this.span.setAttributes(logAndSpanAttributes as Attributes);
         if (terminalOutcome.outcome === "failed") {
           this.span.setStatus({ code: SpanStatusCode.ERROR });
         }
@@ -138,7 +231,7 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
         this.runDuration.record(durationSeconds, attributes);
       });
       runDiagnosticTelemetrySafely(() => {
-        const runLogger = this.logger.child({ [SemanticConventions.SESSION_ID]: this.agentRunId });
+        const runLogger = this.runLogger();
         if (terminalOutcome.outcome === "failed") {
           const cancellationFailed = terminalOutcome.errorClassification === "cancellation_failed";
 
@@ -166,6 +259,13 @@ class OpenTelemetryAgentRunTelemetryScope implements AgentRunTelemetryScope {
       runDiagnosticTelemetrySafely(() => {
         this.span.end();
       });
+    });
+  }
+
+  private runLogger() {
+    return this.logger.child({
+      [SemanticConventions.SESSION_ID]: this.agentRunId,
+      ...this.acceptedAttributes,
     });
   }
 }
@@ -204,7 +304,7 @@ class OpenTelemetryAgentRunTelemetry implements AgentRunTelemetry {
       trace.wrapSpanContext(INVALID_SPAN_CONTEXT),
     );
     const runContext = trace.setSpan(context.active(), span);
-    const scope = new OpenTelemetryAgentRunTelemetryScope(
+    return new OpenTelemetryAgentRunTelemetryScope(
       agentRunId,
       this.options.logger,
       runContext,
@@ -212,18 +312,6 @@ class OpenTelemetryAgentRunTelemetry implements AgentRunTelemetry {
       span,
       startedAt,
     );
-
-    scope.runInContext(() => {
-      runDiagnosticTelemetrySafely(() => {
-        this.options.logger
-          .child({ [SemanticConventions.SESSION_ID]: agentRunId })
-          .info("Agent Run accepted", {
-            eventName: "agent.run.accepted",
-          });
-      });
-    });
-
-    return scope;
   }
 }
 

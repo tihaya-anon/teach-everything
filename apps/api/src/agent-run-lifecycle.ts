@@ -12,6 +12,10 @@ import {
   type AgentRunExecutorEvent,
   type AgentRunRequest,
 } from "@teach-everything/shared";
+import {
+  resolveAgentBehaviorVersionAcceptance,
+  type AgentBehaviorVersionAcceptanceInput,
+} from "./agent-run-behavior";
 import { DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS } from "./agent-run-lifecycle.defaults";
 
 type TerminalAgentRunEvent = Extract<
@@ -30,6 +34,7 @@ type ExecutorNextResult =
     };
 
 export type CreateAgentRunLifecycleOptions = {
+  agentBehaviorVersionAcceptance: AgentBehaviorVersionAcceptanceInput;
   agentRunExecutor: AgentRunExecutor;
   agentRunId: string;
   cancellationConfirmationTimeoutMs?: number;
@@ -116,6 +121,7 @@ const failureEvent = (errorClassification: AgentRunErrorClassification): Termina
 });
 
 export const createAgentRunLifecycle = ({
+  agentBehaviorVersionAcceptance,
   agentRunExecutor,
   agentRunId,
   cancellationConfirmationTimeoutMs = DEFAULT_AGENT_RUN_CANCELLATION_CONFIRMATION_TIMEOUT_MS,
@@ -230,6 +236,16 @@ export const createAgentRunLifecycle = ({
 
       try {
         events.enqueue({ version: 1, type: "run.started", agentRunId });
+
+        const behaviorVersionAcceptance = resolveAgentBehaviorVersionAcceptance(
+          agentBehaviorVersionAcceptance,
+        );
+        if (!behaviorVersionAcceptance.success) {
+          terminate(failureEvent("validation"));
+          return;
+        }
+
+        telemetryScope.recordAccepted(behaviorVersionAcceptance.acceptedTelemetry);
         if (signal.aborted || cancellationRequestedBeforeStart) requestExecutorCancellation();
 
         iterator = agentRunExecutor

@@ -1,20 +1,26 @@
 import { AgentRunExecutionError, type AgentRunExecutor } from "@teach-everything/agent";
 import type {
+  AgentRunAcceptedTelemetry,
   AgentRunTelemetryScope,
   AgentRunTerminalOutcome,
 } from "@teach-everything/observability";
 import {
   agentRunRequestSchema,
+  runtimeProfileSchema,
   type AgentRunEvent,
   type AgentRunExecutorEvent,
   type AgentRunRequest,
 } from "@teach-everything/shared";
+import developmentProfileDocument from "../../../profiles/runtime-development.json";
+import publishedProfileDocument from "../../../profiles/runtime-published.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentBehaviorVersionAcceptanceInput } from "./agent-run-behavior";
 import { createAgentRunLifecycle } from "./agent-run-lifecycle";
 
 const INPUT: AgentRunRequest = { message: "Explain closures." };
 
 type RecordedTelemetry = {
+  accepted: AgentRunAcceptedTelemetry[];
   cancellationRequests: number;
   finishes: AgentRunTerminalOutcome[];
   scope: AgentRunTelemetryScope;
@@ -22,9 +28,13 @@ type RecordedTelemetry = {
 
 const createRecordedTelemetry = (): RecordedTelemetry => {
   const telemetry: RecordedTelemetry = {
+    accepted: [],
     cancellationRequests: 0,
     finishes: [],
     scope: {
+      recordAccepted: (acceptedTelemetry) => {
+        telemetry.accepted.push(acceptedTelemetry);
+      },
       recordCancellationRequested: () => {
         telemetry.cancellationRequests += 1;
       },
@@ -69,6 +79,20 @@ const asyncIterableFrom = <T>(items: T[]): AsyncIterable<T> => ({
 });
 
 const agentRunEvents = (...events: AgentRunExecutorEvent[]) => asyncIterableFrom(events);
+
+const completeBehaviorVersion = {
+  graph: "graph:teaching-assistant:v1",
+  state: "state:lesson-session:v1",
+  action: "action:tutor-response:v1",
+  prompt: "prompt:socratic:v3",
+  tool: "tool:retrieval:v2",
+  model: "model:openai:gpt-5:2026-07-20",
+  trialParameter: "trial-parameter:baseline:v1",
+  sourceRevision: "0123456789abcdef0123456789abcdef01234567",
+} as const;
+
+const developmentRuntimeProfile = runtimeProfileSchema.parse(developmentProfileDocument);
+const publishedRuntimeProfile = runtimeProfileSchema.parse(publishedProfileDocument);
 
 const emptyAsyncIterable = (): AsyncIterable<unknown> => ({
   [Symbol.asyncIterator]: () => ({
@@ -127,6 +151,7 @@ const resolveCleanupAfter = (
 const createLifecycle = (
   agentRunExecutor: AgentRunExecutor,
   options: {
+    agentBehaviorVersionAcceptance?: AgentBehaviorVersionAcceptanceInput;
     agentRunId?: string;
     cancellationConfirmationTimeoutMs?: number;
     signal?: AbortSignal;
@@ -138,6 +163,10 @@ const createLifecycle = (
   return {
     lifecycle: createAgentRunLifecycle({
       agentRunExecutor,
+      agentBehaviorVersionAcceptance: options.agentBehaviorVersionAcceptance ?? {
+        agentBehaviorVersion: completeBehaviorVersion,
+        runtimeProfile: publishedRuntimeProfile,
+      },
       agentRunId: options.agentRunId ?? "ar_lifecycle",
       input: INPUT,
       signal: options.signal ?? new AbortController().signal,
@@ -155,6 +184,75 @@ afterEach(() => {
 });
 
 describe("createAgentRunLifecycle", () => {
+  it("rejects incomplete Agent Behavior Version identity under a strict Runtime Profile before executor work starts", async () => {
+    // Given
+    let executorStarts = 0;
+    const { lifecycle, telemetry } = createLifecycle(
+      {
+        execute: () => {
+          executorStarts += 1;
+          return agentRunEvents({ version: 1, type: "run.completed" });
+        },
+      },
+      {
+        agentBehaviorVersionAcceptance: {
+          agentBehaviorVersion: {
+            ...completeBehaviorVersion,
+            prompt: "unknown",
+          },
+          runtimeProfile: publishedRuntimeProfile,
+        },
+      },
+    );
+
+    // When
+    const events = await collectEvents(lifecycle.events);
+
+    // Then
+    expect(executorStarts).toBe(0);
+    expect(events).toEqual([
+      { version: 1, type: "run.started", agentRunId: "ar_lifecycle" },
+      { version: 1, type: "run.failed", errorClassification: "validation" },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("unknown");
+    expect(telemetry.accepted).toEqual([]);
+    expect(telemetry.finishes).toEqual([{ outcome: "failed", errorClassification: "validation" }]);
+  });
+
+  it("allows incomplete development ad hoc Agent Runs and marks them non-comparable and non-promotable", async () => {
+    // Given
+    const incompleteBehaviorVersion = {
+      graph: "graph:local-scratch",
+      sourceRevision: "unknown",
+    };
+    const { lifecycle, telemetry } = createLifecycle(
+      {
+        execute: () => agentRunEvents({ version: 1, type: "run.completed" }),
+      },
+      {
+        agentBehaviorVersionAcceptance: {
+          agentBehaviorVersion: incompleteBehaviorVersion,
+          runtimeProfile: developmentRuntimeProfile,
+        },
+      },
+    );
+
+    // When
+    const events = await collectEvents(lifecycle.events);
+
+    // Then
+    expect(events.at(-1)).toEqual({ version: 1, type: "run.completed" });
+    expect(telemetry.accepted).toEqual([
+      {
+        agentBehaviorVersion: incompleteBehaviorVersion,
+        comparable: false,
+        promotable: false,
+        runtimeProfileId: "runtime-development",
+      },
+    ]);
+    expect(telemetry.finishes).toEqual([{ outcome: "succeeded" }]);
+  });
+
   it("emits a successful Agent Run and finishes telemetry once", async () => {
     // Given
     const received: { message?: string } = {};

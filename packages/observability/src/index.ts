@@ -14,6 +14,7 @@ export { createLoggerFromEnv, type EnvironmentLoggerOptions } from "./environmen
 export {
   createAgentRunTelemetry,
   runDiagnosticTelemetrySafely,
+  type AgentRunAcceptedTelemetry,
   type AgentRunErrorClassification,
   type AgentRunOutcome,
   type AgentRunTelemetry,

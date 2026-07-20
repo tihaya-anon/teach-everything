@@ -1,6 +1,6 @@
 import { healthResponseSchema } from "@teach-everything/shared";
 import { describe, expect, it } from "vitest";
-import { app } from "./app";
+import { app, createApp } from "./app";
 
 describe("GET /api/health", () => {
   it("returns a successful health response", async () => {
@@ -27,5 +27,26 @@ describe("POST /api/agent-runs", () => {
 
     // Then
     expect(response.status).toBe(404);
+  });
+
+  it("rejects malformed custom Runtime Profile setup before registering Agent Run routes", () => {
+    // Given
+    const createAppWithMalformedProfile = () =>
+      createApp({
+        agentBehaviorVersionAcceptance: {
+          agentBehaviorVersion: {},
+          runtimeProfile: {},
+        },
+        agentRunExecutor: {
+          execute: () => ({
+            [Symbol.asyncIterator]: () => ({
+              next: () => Promise.resolve({ done: true, value: undefined }),
+            }),
+          }),
+        },
+      });
+
+    // When / Then
+    expect(createAppWithMalformedProfile).toThrow();
   });
 });
