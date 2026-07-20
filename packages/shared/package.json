@@ -7,6 +7,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
+    "schema:agent-run-worker": "node --import tsx scripts/write-agent-run-worker-json-schema.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

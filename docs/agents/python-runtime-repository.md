@@ -31,6 +31,12 @@ repository through the schema sharing path selected by the migration split. The 
 not expose raw LangGraph chunks to the frontend, and this repository must not load Python graph
 objects directly.
 
+For the first integration path, Python should consume the checked-in JSON Schema artifacts from
+`packages/shared/json-schema/`:
+
+- `agent-run-worker-command.schema.json`
+- `agent-run-worker-event.schema.json`
+
 ## Development Layout
 
 During local development, keep the repositories checked out as siblings when practical:

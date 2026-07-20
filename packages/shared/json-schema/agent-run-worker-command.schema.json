@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.start"
+        },
+        "agentRunId": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        "runtimeProfile": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "type": "number",
+              "const": 1
+            },
+            "profileId": {
+              "type": "string"
+            },
+            "runtimePolicy": {
+              "type": "object",
+              "properties": {
+                "agentBehaviorVersion": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "policy": {
+                          "type": "string",
+                          "const": "strict"
+                        },
+                        "requireCompleteDimensions": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "rejectUnresolvedDimensions": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "allowIncompleteAdHocRuns": {
+                          "type": "boolean",
+                          "const": false
+                        }
+                      },
+                      "required": [
+                        "policy",
+                        "requireCompleteDimensions",
+                        "rejectUnresolvedDimensions",
+                        "allowIncompleteAdHocRuns"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "policy": {
+                          "type": "string",
+                          "const": "development"
+                        },
+                        "requireCompleteDimensions": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "rejectUnresolvedDimensions": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "allowIncompleteAdHocRuns": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "incompleteAdHocRuns": {
+                          "type": "object",
+                          "properties": {
+                            "comparable": {
+                              "type": "boolean",
+                              "const": false
+                            },
+                            "promotable": {
+                              "type": "boolean",
+                              "const": false
+                            }
+                          },
+                          "required": [
+                            "comparable",
+                            "promotable"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "policy",
+                        "requireCompleteDimensions",
+                        "rejectUnresolvedDimensions",
+                        "allowIncompleteAdHocRuns",
+                        "incompleteAdHocRuns"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "sourceRevision": {
+                  "type": "object",
+                  "properties": {
+                    "requireCleanForPublishedGraphVersions": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "requireCleanForPublishedGraphVersions"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "agentBehaviorVersion",
+                "sourceRevision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "profileId",
+            "runtimePolicy"
+          ],
+          "additionalProperties": false
+        },
+        "behaviorVersion": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "graph": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "trialParameter": {
+                  "type": "string"
+                },
+                "sourceRevision": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                }
+              },
+              "required": [
+                "graph",
+                "state",
+                "action",
+                "prompt",
+                "tool",
+                "model",
+                "trialParameter",
+                "sourceRevision"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "graph": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "trialParameter": {
+                  "type": "string"
+                },
+                "sourceRevision": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "agentRunId",
+        "input",
+        "runtimeProfile",
+        "behaviorVersion"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.cancel"
+        },
+        "agentRunId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "agentRunId"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

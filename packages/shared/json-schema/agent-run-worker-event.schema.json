@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.started"
+        },
+        "agentRunId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "agentRunId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "message.delta"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "progress.update"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "run",
+            "task"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "started",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "scope",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.completed"
+        }
+      },
+      "required": [
+        "version",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.failed"
+        },
+        "errorClassification": {
+          "type": "string",
+          "enum": [
+            "validation",
+            "provider",
+            "tool",
+            "timeout",
+            "cancellation_failed",
+            "internal"
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "type",
+        "errorClassification"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "type": {
+          "type": "string",
+          "const": "run.cancelled"
+        }
+      },
+      "required": [
+        "version",
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

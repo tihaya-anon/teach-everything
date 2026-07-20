@@ -81,6 +81,24 @@ OpenInference telemetry, not in the browser-facing product protocol.
 - Shared protocol changes should start in this repository, then be consumed by the Python runtime
   repository through an explicit schema publication or vendoring path.
 
+## Schema Sharing
+
+The canonical schemas are the Zod definitions in
+`packages/shared/src/schemas/agent-run-worker.ts`. Python consumers should use the checked-in JSON
+Schema artifacts:
+
+- `packages/shared/json-schema/agent-run-worker-command.schema.json`
+- `packages/shared/json-schema/agent-run-worker-event.schema.json`
+
+Regenerate those artifacts after protocol changes:
+
+```bash
+pnpm --filter @teach-everything/shared schema:agent-run-worker
+```
+
+The shared package tests compare the artifacts against the generator output so stale files are
+caught before commit.
+
 ## Migration Order
 
 1. Define and test this shared protocol in this repository.
