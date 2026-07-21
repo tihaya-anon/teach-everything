@@ -6,7 +6,9 @@ Agent Run stream. A Python runtime repository owns LangGraph execution and exper
 The selected Python runtime repository is `tihaya-anon/agent-runtime-python`.
 
 The initial transport is NDJSON over worker stdio. Each line is one complete JSON object, encoded
-without embedded record delimiters. The protocol version is `1`.
+without embedded record delimiters. The protocol version is `1`. If the Python runtime becomes a
+long-running service, reuse the same command and event shapes over an internal HTTP streaming API;
+see `docs/agents/python-runtime-internal-api.md`.
 
 ```mermaid
 flowchart LR
@@ -97,6 +99,8 @@ violations.
   and experiment performance.
 - Shared protocol changes should start in this repository, then be consumed by the Python runtime
   repository through an explicit schema publication or vendoring path.
+- Whole-product path tests through `/api/agent-runs` belong in this repository or dedicated
+  observability/test engineering, not in the Python runtime experiment performer.
 
 ## Schema Sharing
 

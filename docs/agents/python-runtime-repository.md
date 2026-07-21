@@ -23,6 +23,7 @@ Use a public repository unless a later product or data-handling decision require
 - The canonical Agent Run worker protocol schemas.
 - Agent Run Stream stability.
 - Translation between worker events and frontend Agent Run events.
+- Product-path and gateway acceptance tests for `POST /api/agent-runs`.
 
 ## Contract Direction
 
@@ -30,6 +31,11 @@ The Agent Run worker protocol starts in this repository and is consumed by the P
 repository through the schema sharing path selected by the migration split. The Python runtime must
 not expose raw LangGraph chunks to the frontend, and this repository must not load Python graph
 objects directly.
+
+For the target service boundary, see `docs/agents/python-runtime-internal-api.md`. The preferred
+evolution is an internal HTTP streaming API that reuses the worker command and event schemas. Python
+experiments should not call back into the TS product API; end-to-end product-path checks belong in
+this repository or dedicated observability/test engineering.
 
 For the first integration path, Python should consume the checked-in JSON Schema artifacts from
 `packages/shared/json-schema/`:

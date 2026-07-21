@@ -6,6 +6,11 @@ Research date: 2026-07-14. Sources are limited to official documentation, web st
 
 For the first Agent Run endpoint, use one **`POST /api/agent-runs` request whose response body is streamed and consumed with `fetch`**. Encode a small, versioned application event protocol as newline-delimited JSON (NDJSON) or another explicitly framed format; do not expose raw LangGraph events as the public wire contract.
 
+For the TS-to-Python runtime boundary, use the same design principle internally: HTTP `POST` with a
+streaming response, preferably `application/x-ndjson` while the worker protocol is already NDJSON.
+That internal API is service-to-service and must carry worker protocol events, not the
+browser-facing product stream.
+
 Create the Agent Run before committing the response headers, then return its opaque ID in `X-Agent-Run-Id` and as the first `run.started` body event. `fetch()` fulfills when headers arrive, before the whole body is received, so the frontend can record the ID and begin rendering chunks immediately. The existing repository-owned assistant-ui `ChatModelAdapter` already receives an `AbortSignal`; pass it directly to `fetch` and iterate the decoded response body. assistant-ui requires each adapter yield to contain the cumulative message content, rather than a token delta.
 
 This is a transport decision for the development-only Telemetry Harness, not a promise about product graph events or durable reconnect/resume.
